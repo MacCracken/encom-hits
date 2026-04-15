@@ -88,7 +88,12 @@ fn engine_present() {
 }
 
 fn engine_write_ppm() {
-    var fd = syscall(SYS_OPEN, "/tmp/encom-hits.ppm", O_WRONLY | O_CREAT | O_TRUNC, 420);
+    engine_write_ppm_to("/tmp/encom-hits.ppm");
+    return 0;
+}
+
+fn engine_write_ppm_to(path) {
+    var fd = syscall(SYS_OPEN, path, O_WRONLY | O_CREAT | O_TRUNC, 420);
     if (fd < 0) { return 0; }
 
     # PPM header: P6\n320 240\n255\n

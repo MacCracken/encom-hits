@@ -626,12 +626,84 @@ fn mcp_game_tick(fb) {
     return 0;
 }
 
+fn _screenshot_render(fb, path) {
+    glow_apply(fb, SCREEN_W, SCREEN_H);
+    engine_write_ppm_to(path);
+    return 0;
+}
+
+fn _screenshot_mode(fb) {
+    # Menu
+    menu_render(fb);
+    _screenshot_render(fb, "screenshots/menu.ppm");
+
+    # Title cards
+    title_render(fb, GAME_LIGHTCYCLES);
+    _screenshot_render(fb, "screenshots/title_lightcycles.ppm");
+
+    title_render(fb, GAME_GRIDBUGS);
+    _screenshot_render(fb, "screenshots/title_gridbugs.ppm");
+
+    title_render(fb, GAME_TANKS);
+    _screenshot_render(fb, "screenshots/title_tanks.ppm");
+
+    title_render(fb, GAME_MCPCONE);
+    _screenshot_render(fb, "screenshots/title_mcpcone.ppm");
+
+    # Light Cycles — simulate a few ticks for visible trails
+    lc_init();
+    var i = 0;
+    while (i < 25) {
+        lc_p2_dir = ai_lightcycles(lc_p2_x, lc_p2_y, lc_p2_dir, LC_GRID_W, LC_GRID_H);
+        lc_update();
+        i = i + 1;
+    }
+    lc_render(fb);
+    _screenshot_render(fb, "screenshots/lightcycles.ppm");
+
+    # Grid Bugs — init and render starting state
+    gb_init(1);
+    gb_render(fb);
+    _screenshot_render(fb, "screenshots/gridbugs.ppm");
+
+    # Battle Tanks — init maze and render
+    tk_init(54321);
+    tk_render(fb);
+    _screenshot_render(fb, "screenshots/tanks.ppm");
+
+    # MCP Cone — init and simulate a few ticks for rotation
+    mcp_init();
+    i = 0;
+    while (i < 10) {
+        mcp_update();
+        i = i + 1;
+    }
+    mcp_render(fb);
+    _screenshot_render(fb, "screenshots/mcpcone.ppm");
+
+    return 0;
+}
+
 fn main() {
     alloc_init();
+    args_init();
 
     var fb = engine_init();
-    input_init();
     scores_load();
+
+    # --ppm mode: render screenshots and exit (no input needed)
+    var ppm_mode = 0;
+    if (argc() > 1) {
+        if (streq(argv(1), "--ppm") == 1) { ppm_mode = 1; }
+    }
+
+    if (ppm_mode == 1) {
+        _screenshot_mode(fb);
+        engine_shutdown();
+        syscall(60, 0);
+    }
+
+    input_init();
 
     current_game = GAME_MENU;
     game_running = 1;
