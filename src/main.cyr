@@ -273,8 +273,8 @@ fn splash_render(fb) {
     draw_line(fb, lx + lw / 2, ly + lh / 2, lx + lw, ly, COLOR_CYAN);
     draw_line(fb, lx + lw, ly, lx + lw, ly + lh, COLOR_CYAN);
 
-    # "TOP HITS" centered below in red
-    draw_text(fb, "TOP HITS", 112, 62, COLOR_RED, 2);
+    # "CLASSICS" centered below in red
+    draw_text(fb, "CLASSICS", 112, 62, COLOR_RED, 2);
 
     # Accent lines framing the title
     draw_hline(fb, 50, 270, 12, COLOR_BLUE);
