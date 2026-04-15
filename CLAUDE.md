@@ -2,55 +2,61 @@
 
 ## Project Identity
 
-**ENCOM's Hits** — Retro arcade game collection in Cyrius. Four classic cabinet games sharing a common engine, rendered in neon-on-black wireframe aesthetic.
+**ENCOM's Hits** — Retro arcade game collection in Cyrius. Six games sharing a common engine, rendered in neon-on-black wireframe aesthetic.
 
 - **Type**: Standalone game binary (Cyrius-native)
 - **License**: GPL-3.0-only
-- **Version**: SemVer `0.D.M` pre-1.0
+- **Version**: SemVer, currently 1.0.0
 - **Version file**: `VERSION` at repo root
 - **Genesis repo**: [agnosticos](https://github.com/MacCracken/agnosticos)
 - **Sister projects**: [cyrius-doom](https://github.com/MacCracken/cyrius-doom) (3D BSP), [cyrius-nba-jam](https://github.com/MacCracken/cyrius-nba-jam) (2D sprites)
 
 ## What This Is
 
-A collection of four arcade games inspired by the 1982 TRON cabinet, sharing a common engine. Pure software rendering — neon wireframe lines on black, no textures, no sprites, no assets. The art is math.
+A collection of six arcade games inspired by the 1982 TRON cabinet and Discs of TRON (1983), sharing a common engine. Pure software rendering — neon wireframe lines on black, no textures, no sprites, no assets. The art is math.
 
 ### The Games
 
 **Light Cycles** — Two players leave walls behind them on a grid. Last one standing wins. Instant death on any collision (wall, trail, boundary). The most iconic game in the collection.
 
-**MCP Cone** — Navigate through rotating concentric barriers to reach the core. Timing-based, pattern recognition, increasing speed. Breakout-meets-bullet-hell geometry.
+**Grid Bugs** — Clear bugs from an energy grid. Movement on grid lines, bugs pursue via pathfinding. Reach the I/O Tower to advance. Pac-Man reimagined on a circuit board.
 
-**Battle Tanks** — Top-down tank combat in a procedural maze. Projectile physics with wall ricochet. AI opponent with pathfinding and shot prediction.
+**Battle Tanks** — Top-down tank combat in a procedural maze. Projectile physics with wall ricochet. AI opponent with maze-aware A* pathfinding.
 
-**Grid Bugs** — Clear bugs from an energy grid. Movement on grid lines, bugs pursue via pathfinding, power-ups on intersections. Pac-Man reimagined on a circuit board.
+**MCP Cone** — Navigate through rotating concentric barriers to reach the core. Timing-based, pattern recognition, increasing speed per ring cleared.
+
+**Interceptors** — Vertical shooter. Defend the grid from waves of descending interceptor programs. Shoot to survive, dodge enemy fire.
+
+**Disc Arena** — 1v1 disc combat inspired by Discs of TRON. Throw your disc, ricochet off walls, hit the opponent. First to 5 wins.
 
 ## Why This Project Exists
 
-1. **Proves shared game infrastructure.** Four games on one engine — the kiran pattern before kiran exists. Shared renderer, input, game loop, menu system.
+1. **Proves shared game infrastructure.** Six games on one engine — the kiran pattern before kiran exists. Shared renderer, input, game loop, menu system.
 
 2. **Zero-asset rendering.** Every visual is a line, arc, or filled polygon computed at runtime. No sprite loading, no texture management, no asset pipeline. Pure math. This validates framebuffer rendering primitives that every game engine needs.
 
 3. **The t-ron connection.** The AGNOS security monitor is named t-ron — the security program from TRON that fights the MCP. ENCOM is the fictional company from the same universe. This collection ships games from the company whose security program already runs in the OS.
 
-4. **Small scope, high polish.** Each game is 200-500 lines. The whole collection is ~2-3K lines. Small enough to finish, polished enough to showcase.
+4. **Small scope, high polish.** Each game is 200-300 lines. The whole collection is ~3.9K lines. Small enough to finish, polished enough to showcase.
 
 ## Architecture
 
 ```
 src/
-  main.cyr          — Entry point, game select menu, bitmap text, main loop
-  engine.cyr        — Shared engine: framebuffer, display output, frame timing
-  glow.cyr          — Neon glow effect: bloom on bright lines (the aesthetic)
-  draw.cyr          — Primitives: line, hline, vline, rect, filled rect, pixel
-  input.cyr         — Keyboard mapping, player input state, terminal raw mode
+  main.cyr          — Entry, menu, bitmap text, splash, scoring, --ppm mode
+  engine.cyr        — Framebuffer, /dev/fb0 + PPM output, frame timing
+  draw.cyr          — Bresenham line, hline/vline, rect, filled rect, pixel
+  input.cyr         — Terminal raw mode, keyboard state, escape sequences
+  glow.cyr          — Additive neon bloom effect
+  ai.cyr            — A* (open grid + maze-aware), chase, LC lookahead
+  grid.cyr          — Maze generation (iterative backtracker), wall query
+  types.cyr         — Colors, constants, game IDs, per-game grid dimensions
   lightcycles.cyr   — Light Cycles game
-  mcpcone.cyr       — MCP Cone game
-  tanks.cyr         — Battle Tanks game
   gridbugs.cyr      — Grid Bugs game
-  ai.cyr            — Shared AI: A* (open grid + maze-aware), chase, LC lookahead
-  grid.cyr          — Grid/maze data structures (shared by tanks + gridbugs)
-  types.cyr         — Shared types, colors, constants
+  tanks.cyr         — Battle Tanks game
+  mcpcone.cyr       — MCP Cone game
+  interceptors.cyr  — Interceptors game
+  discs.cyr         — Disc Arena game
 ```
 
 ### Rendering
@@ -71,7 +77,10 @@ The core rendering primitive is `draw_line(x0, y0, x1, y1, color)` — Bresenham
 - MCP cone barriers: concentric circles drawn as polygon approximations
 - Tank maze: grid of line segments
 - Grid bugs: grid intersections connected by lines
-- Text: simple bitmap font or line-drawn characters
+- Interceptor enemies: rectangles with legs (recognizer shapes)
+- Disc Arena: diamond-shaped discs, paddle bars
+- Text: 3x5 bitmap font, A-Z + 0-9 + punctuation, scalable
+- Splash: large vector ENCOM lettering + perspective grid
 
 ### Shared AI
 
@@ -91,15 +100,18 @@ The core rendering primitive is `draw_line(x0, y0, x1, y1, color)` — Bresenham
 5. Documentation — CHANGELOG
 6. Return to step 1
 
-### Build Order
+### Build Order (completed)
 
-1. Engine first (framebuffer, line drawing, input, glow)
+1. Engine (framebuffer, line drawing, input, glow)
 2. Light Cycles (simplest game, proves the engine)
 3. Grid Bugs (proves grid + pathfinding)
-4. Battle Tanks (proves projectiles + ricochet + AI)
+4. Battle Tanks (proves projectiles + ricochet + maze A*)
 5. MCP Cone (proves rotation + timing + pattern)
-6. Menu system (game select, title cards)
-7. Polish (glow effects, transitions, high scores)
+6. Interceptors (proves wave spawning + multi-entity collision)
+7. Disc Arena (proves ricochet physics + AI prediction)
+8. Menu system, title cards, splash screen
+9. Scoring, high score persistence, screenshot mode
+10. Security audit + pre-release review
 
 ## DO NOT
 
@@ -128,9 +140,9 @@ The neon-on-black aesthetic is the brand:
 
 ## Future Phases (not in this repo)
 
-**Phase 2: Disc Wars** — Arena combat, disc throw + ricochet + catch. Requires kiran (renderer) and impetus (physics). Separate repo when the time comes. Potential Disney licensing conversation.
+**MCP Voice** — Announcer with digital vocal processing. Requires shravan/naad porting. Pitch down + vocoder + reverb + ring mod. David Warner-style 80s digitized voice.
 
-**Phase 3: THE GRID** — Fully interactive world. 1982 wireframe mode AND modern mode. joshua provides AI programs as NPCs. This is a world, not a mini-game. Separate repo, separate scope, separate conversation with Disney.
+**THE GRID** — Fully interactive world. 1982 wireframe mode AND modern mode. joshua provides AI programs as NPCs. This is a world, not a mini-game. Separate repo, separate scope, separate conversation with Disney.
 
 ## Documentation Structure
 

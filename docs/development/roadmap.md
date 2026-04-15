@@ -1,6 +1,6 @@
 # ENCOM's Hits — Development Roadmap
 
-> **Status**: v0.5.0 in progress | **Last Updated**: 2026-04-15
+> **Status**: v1.0.0 complete | **Last Updated**: 2026-04-15
 
 ---
 
@@ -78,7 +78,7 @@ The collection.
 
 | # | Item | Status | Notes |
 |---|------|--------|-------|
-| 1 | All 4 games complete and polished | In progress | All playable, AI fixed, scoring + high scores done |
+| 1 | All 6 games complete and polished | Done | LC, GB, TK, MCP, INT, DISC — all playable with AI, scoring, high scores |
 | 2 | Consistent visual identity (neon palette) | Done | All games use shared color palette |
 | 3 | Stable 60fps on all games | Done | Frame timing in engine.cyr, simple games |
 | 4 | Security audit (input, save files) | Done | See CHANGELOG — 7 fixes across input, memory, file I/O |
@@ -88,7 +88,7 @@ The collection.
 | Phase | What | Requires | Notes |
 |-------|------|----------|-------|
 | **MCP Voice** | Announcer with digital vocal processing | shravan, naad | Pitch down + vocoder + reverb + ring mod. David Warner-style 80s digitized voice. Needs shravan/naad ported first. |
-| **Disc Wars** | Arena combat, disc ricochet, catch-and-return | kiran, impetus | Potential licensing conversation |
+| **Disc Wars** | Full 3D arena disc combat | kiran, impetus | Disc Arena (2D) ships in v1.0; 3D version is a separate effort |
 | **THE GRID** | Interactive world, AI programs, two visual modes | kiran, joshua, impetus | The big one. 1982 wireframe + modern. |
 
 ---

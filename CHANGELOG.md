@@ -4,48 +4,38 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
-## [Unreleased]
+## [1.0.0] — 2026-04-15
+
+Six-game arcade collection. Shared engine, neon wireframe rendering, zero assets. 3,872 lines across 14 source files.
 
 ### Added
-- **Engine layer** — framebuffer init with /dev/fb0 direct write and PPM fallback, clock_gettime frame timing at 60fps (src/engine.cyr)
-- **Drawing primitives** — Bresenham line, fast hline/vline, rect, filled rect, pixel, clear (src/draw.cyr)
-- **Input system** — termios raw mode, non-blocking stdin, escape sequence parsing for arrow keys, WASD + number keys, terminal restore on shutdown (src/input.cyr)
+- **Engine layer** — framebuffer init with /dev/fb0 direct write and PPM fallback, clock_gettime frame timing at 60fps, parameterized PPM writer (src/engine.cyr)
+- **Drawing primitives** — Bresenham line, fast hline/vline, rect, filled rect, pixel, memset clear (src/draw.cyr)
+- **Input system** — termios raw mode, non-blocking stdin, escape sequence parsing for arrow keys, WASD + number keys 1-6, Ctrl+C graceful quit, terminal restore on shutdown (src/input.cyr)
 - **Neon glow effect** — single-pass additive bloom on bright pixels, 4-neighbor spread with brightness threshold (src/glow.cyr)
 - **Shared types** — neon color palette, screen constants, direction/result enums, per-game grid dimensions (src/types.cyr)
-- **Shared AI** — A* pathfinding on grids, greedy chase direction, Light Cycles lookahead AI with jitter suppression (src/ai.cyr)
+- **Shared AI** — A* pathfinding on open grids, maze-aware A* with wall checking, greedy chase direction, Light Cycles lookahead AI with jitter suppression (src/ai.cyr)
 - **Grid/maze system** — iterative backtracker maze generation with xorshift PRNG, wall query, maze rendering (src/grid.cyr)
-- **Light Cycles** — 80x60 grid, two players with trails, instant-death collision, 180-turn prevention, AI opponent via lookahead (src/lightcycles.cyr)
-- **Grid Bugs** — 16x12 node grid with connectivity, bug chase AI, I/O Tower goal, level progression (src/gridbugs.cyr)
-- **Battle Tanks** — procedural maze, player vs AI tank, projectile ricochet with max 2 bounces, turret direction indicator (src/tanks.cyr)
-- **MCP Cone** — 8 concentric rotating rings with gaps, 16-segment pre-computed trig, projectile through gaps to reach core (src/mcpcone.cyr)
-- **Menu system** — game select with arrow/WASD navigation and number keys, 3x5 bitmap font with A-Z/digits/punctuation, game-over screens (src/main.cyr)
-- **Main loop** — game dispatch, per-game tick rates (LC: 10/sec, GB: 6/sec, TK: 15/sec, MCP: 20/sec), glow pass per frame
-- **Title cards** — 1.5-second neon title screen with preview graphic per game, shown on game select before play begins
-- **High score persistence** — scores.dat binary file (4 x i64), loaded at startup, saved on new best. Displayed on menu and game-over screens
-- **Score system** — LC: 10/tick survival + 1000 win bonus. GB: 500 * level on clear. TK: 1000 on win. MCP: 100/ring + 1000 win
-- **Number rendering** — draw_number function for integer display, digits 0-9 in bitmap font
-- **Game-over improvements** — score display, "NEW BEST" indicator on high scores
-
-### Fixed
-- Light Cycles head-on collision — both players moving to same cell now kills both (was: both survived)
-- Grid Bugs level completion no longer fires after death in same tick (death + tower arrival race condition)
-- "NEW BEST" indicator only shows on strictly new high score, not tied score
-- Removed dead code: unused `_maze_pop_x`/`_maze_pop_y` in grid.cyr
-- PPM fallback file permissions changed from 0666 to 0644 (consistency with scores.dat)
+- **Light Cycles** — 80x60 grid, two players with trails, instant-death collision, 180-turn prevention, head-on collision detection, AI opponent via lookahead (src/lightcycles.cyr)
+- **Grid Bugs** — 16x12 node grid with connectivity, bug chase AI with clamped spawn coordinates, I/O Tower goal, level progression with death-guard (src/gridbugs.cyr)
+- **Battle Tanks** — procedural maze, player vs AI tank with maze-aware A* pathfinding, projectile ricochet with max 2 bounces, turret direction indicator (src/tanks.cyr)
+- **MCP Cone** — 8 concentric rotating rings with gaps, 16-segment pre-computed trig, projectile through gaps to reach core, speed ramp on ring destruction (src/mcpcone.cyr)
+- **Interceptors** — vertical shooter with wave spawning, recognizer-shaped enemies with horizontal drift, player/enemy bullet systems, wave-clear progression (src/interceptors.cyr)
+- **Disc Arena** — 1v1 disc combat, throw/ricochet/catch mechanics, top/bottom wall bounces, AI opponent with dodge/aim/throw behaviors, first-to-5 scoring (src/discs.cyr)
+- **Splash screen** — large vector "ENCOM" lettering, "TOP HITS" in red, perspective grid floor with vanishing point, 4-second display with any-key skip
+- **Menu system** — 6-game select with arrow/WASD navigation and number keys, corner bracket title framing, end-capped dividers, high score display per game
+- **Bitmap text** — 3x5 pixel font with A-Z, 0-9, punctuation, scalable rendering. draw_number for integer display with 8-digit overflow guard
+- **Title cards** — 1.5-second neon title screen with preview graphic per game, best score display, shown before game start
+- **High score persistence** — scores.dat binary file (6 x i64), loaded at startup with validation/clamping, saved on new best with 0644 permissions
+- **Score system** — LC: 10/tick + 1000 win. GB: 500 * level. TK: 1000 win. MCP: 100/ring + 1000 win. INT: 100/kill. DISC: 200/point
+- **Screenshot mode** — `--ppm` CLI flag renders splash, menu, 6 title cards, 6 gameplay screens to /tmp/ as PPM files and exits
+- **Game-over screens** — score display, "NEW BEST" indicator (strict >), ESC to return
 
 ### Security
-- **[CRITICAL] Bug spawn out-of-bounds** — gridbugs.cyr: bug indices 6-7 spawned at Y=12/14 on a 12-row grid (valid: 0-11). Clamped spawn coordinates with modulo.
-- **[CRITICAL] draw_number buffer overflow** — main.cyr: 8-slot digit buffer could overflow on 19-digit i64 values. Added cap at 8 digits (99,999,999 max display).
-- **[CRITICAL] PPM fallback memory leak** — engine.cyr: `alloc()` called per-frame in PPM path, never freed. Moved to one-time allocation in engine_init.
-- **[HIGH] Ctrl+C now triggers graceful quit** — input.cyr: with ISIG disabled, Ctrl+C was silently eaten. Now maps ETX (byte 3) to KEY_Q for clean terminal restore.
-- **[HIGH] Score file validation** — main.cyr: scores_load now clamps values to [0, 99999999] after reading, preventing crafted scores.dat from causing integer overflow in draw_number.
-- **[MEDIUM] scores.dat file permissions** — main.cyr: changed from 0666 (world-writable) to 0644 (owner-write only).
-- **[MEDIUM] PRNG zero-trap** — grid.cyr: xorshift could theoretically reach seed=0 and stay there. Added guard to reset to 1.
-
-### Changed
-- Tank AI now uses maze-aware A* pathfinding instead of greedy chase (no longer walks into walls)
-- MCP Cone rings accelerate by +1 speed each time a ring is broken (difficulty ramp)
-- draw_clear uses memset instead of byte-by-byte loop
-- Include order: grid.cyr and gridbugs.cyr before ai.cyr (dependency fix)
-- Menu shows high scores next to each game name
-- Game selection routes through title card instead of instant start
+- Score file validation clamps values to [0, 99999999] on load
+- draw_number overflow guard (8-digit cap)
+- PPM buffer pre-allocated once (no per-frame leak)
+- Ctrl+C maps to graceful quit (ETX byte 3 → KEY_Q)
+- File permissions 0644 on scores.dat and PPM output
+- Xorshift PRNG zero-trap guard
+- Bug spawn coordinates clamped to valid grid bounds
