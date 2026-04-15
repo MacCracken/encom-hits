@@ -67,18 +67,18 @@ The collection.
 | # | Item | Status | Notes |
 |---|------|--------|-------|
 | 1 | Game select menu (in main.cyr) | Done | Arrow/WASD nav + number keys. No separate menu.cyr — inline in main |
-| 2 | Bitmap text rendering | Done | 3x5 pixel font, A-Z + digits + punctuation, scalable |
+| 2 | Bitmap text rendering | Done | 3x5 pixel font, A-Z + 0-9 + punctuation, scalable. draw_number for scores |
 | 3 | glow.cyr — bloom effect on bright lines | Done | Single-pass additive, 4-neighbor, brightness threshold |
-| 4 | Game-over screens | Done | Winner text + ESC to return |
-| 5 | Title cards per game | Not started | Neon text + preview |
-| 6 | High score persistence | Not started | Simple file write |
-| 7 | Transitions between games | Not started | Fade or wipe |
+| 4 | Game-over screens | Done | Winner text, score display, "NEW BEST" indicator, ESC to return |
+| 5 | Title cards per game | Done | 1.5s neon title + preview graphic + best score per game |
+| 6 | High score persistence | Done | scores.dat binary file (4 x i64), read on startup, write on new best |
+| 7 | Transitions | Done | Title card serves as visual break between menu and game |
 
 ## v1.0.0 — Complete Collection
 
 | # | Item | Status | Notes |
 |---|------|--------|-------|
-| 1 | All 4 games complete and polished | In progress | All playable, AI/difficulty need work |
+| 1 | All 4 games complete and polished | In progress | All playable, AI fixed, scoring + high scores done |
 | 2 | Consistent visual identity (neon palette) | Done | All games use shared color palette |
 | 3 | Stable 60fps on all games | Done | Frame timing in engine.cyr, simple games |
 | 4 | Security audit (input, save files) | Not started | |

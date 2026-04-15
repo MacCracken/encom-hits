@@ -26,6 +26,49 @@ var current_game = 0;   # GAME_MENU
 var game_running = 0;
 var menu_selection = 1;  # 1-4 for game select
 
+# Title card state
+var title_active = 0;
+var title_timer = 0;
+var pending_game = 0;
+
+# Score tracking
+var game_score = 0;
+var _scores[4];
+
+fn scores_load() {
+    var fd = syscall(SYS_OPEN, "scores.dat", 0, 0);
+    if (fd < 0) { return 0; }
+    syscall(SYS_READ, fd, &_scores, 32);
+    syscall(SYS_CLOSE, fd);
+    return 0;
+}
+
+fn scores_save() {
+    var fd = syscall(SYS_OPEN, "scores.dat", O_WRONLY | O_CREAT | O_TRUNC, 438);
+    if (fd < 0) { return 0; }
+    syscall(SYS_WRITE, fd, &_scores, 32);
+    syscall(SYS_CLOSE, fd);
+    return 0;
+}
+
+fn scores_get(game) {
+    if (game < 1) { return 0; }
+    if (game > 4) { return 0; }
+    return load64(&_scores + (game - 1) * 8);
+}
+
+fn scores_update(game, score) {
+    if (game < 1) { return 0; }
+    if (game > 4) { return 0; }
+    var idx = (game - 1) * 8;
+    var old = load64(&_scores + idx);
+    if (score > old) {
+        store64(&_scores + idx, score);
+        scores_save();
+    }
+    return 0;
+}
+
 # Simple bitmap text: 3x5 pixel font for digits and uppercase letters
 # Each character is encoded as 15 bits (3 wide x 5 tall, top-to-bottom, left-to-right)
 # We'll draw text with small filled rects for the neon look
@@ -48,6 +91,11 @@ fn draw_char(fb, ch, cx, cy, color, scale) {
     if (ch == 50) { r0 = 7; r1 = 1; r2 = 7; r3 = 4; r4 = 7; }  # 2
     if (ch == 51) { r0 = 7; r1 = 1; r2 = 7; r3 = 1; r4 = 7; }  # 3
     if (ch == 52) { r0 = 5; r1 = 5; r2 = 7; r3 = 1; r4 = 1; }  # 4
+    if (ch == 53) { r0 = 7; r1 = 4; r2 = 7; r3 = 1; r4 = 7; }  # 5
+    if (ch == 54) { r0 = 7; r1 = 4; r2 = 7; r3 = 5; r4 = 7; }  # 6
+    if (ch == 55) { r0 = 7; r1 = 1; r2 = 1; r3 = 1; r4 = 1; }  # 7
+    if (ch == 56) { r0 = 7; r1 = 5; r2 = 7; r3 = 5; r4 = 7; }  # 8
+    if (ch == 57) { r0 = 7; r1 = 5; r2 = 7; r3 = 1; r4 = 7; }  # 9
 
     # Letters (uppercase)
     if (ch == 69) { r0 = 7; r1 = 4; r2 = 7; r3 = 4; r4 = 7; }  # E
@@ -116,6 +164,31 @@ fn draw_text(fb, text, x, y, color, scale) {
     return 0;
 }
 
+fn draw_number(fb, num, x, y, color, scale) {
+    if (num == 0) {
+        draw_char(fb, 48, x, y, color, scale);
+        return 0;
+    }
+    var digits[8];
+    var count = 0;
+    var n = num;
+    if (n < 0) { n = 0 - n; }
+    while (n > 0) {
+        store64(&digits + count * 8, n % 10);
+        count = count + 1;
+        n = n / 10;
+    }
+    var i = count - 1;
+    var cx = x;
+    while (i >= 0) {
+        var d = load64(&digits + i * 8);
+        draw_char(fb, 48 + d, cx, y, color, scale);
+        cx = cx + scale * 4;
+        i = i - 1;
+    }
+    return 0;
+}
+
 # Menu rendering
 fn menu_render(fb) {
     draw_clear(fb);
@@ -134,24 +207,39 @@ fn menu_render(fb) {
     var c1 = dim_color;
     if (menu_selection == 1) { c1 = sel_color; }
     draw_text(fb, "1. LIGHT CYCLES", 80, y, c1, 2);
+    var s1 = scores_get(GAME_LIGHTCYCLES);
+    if (s1 > 0) { draw_number(fb, s1, 250, y + 4, COLOR_DIM_BLUE, 1); }
 
     var c2 = dim_color;
     if (menu_selection == 2) { c2 = sel_color; }
     draw_text(fb, "2. GRID BUGS", 80, y + 30, c2, 2);
+    var s2 = scores_get(GAME_GRIDBUGS);
+    if (s2 > 0) { draw_number(fb, s2, 250, y + 34, COLOR_DIM_BLUE, 1); }
 
     var c3 = dim_color;
     if (menu_selection == 3) { c3 = sel_color; }
     draw_text(fb, "3. BATTLE TANKS", 80, y + 60, c3, 2);
+    var s3 = scores_get(GAME_TANKS);
+    if (s3 > 0) { draw_number(fb, s3, 250, y + 64, COLOR_DIM_BLUE, 1); }
 
     var c4 = dim_color;
     if (menu_selection == 4) { c4 = sel_color; }
     draw_text(fb, "4. MCP CONE", 80, y + 90, c4, 2);
+    var s4 = scores_get(GAME_MCPCONE);
+    if (s4 > 0) { draw_number(fb, s4, 250, y + 94, COLOR_DIM_BLUE, 1); }
 
     # Footer
     draw_hline(fb, 40, 280, 200, COLOR_BLUE);
     draw_text(fb, "ENTER TO SELECT", 80, 210, COLOR_DIM_BLUE, 1);
     draw_text(fb, "Q TO QUIT", 112, 224, COLOR_DIM_BLUE, 1);
 
+    return 0;
+}
+
+fn _menu_launch(game) {
+    pending_game = game;
+    title_active = 1;
+    title_timer = 90;
     return 0;
 }
 
@@ -180,19 +268,69 @@ fn menu_update() {
     if (input_key(KEY_3) == 1) { menu_selection = 3; }
     if (input_key(KEY_4) == 1) { menu_selection = 4; }
 
-    # Enter or number key to select
-    if (input_key(KEY_ENTER) == 1) {
-        current_game = menu_selection;
-        if (current_game == GAME_LIGHTCYCLES) { lc_init(); }
-        if (current_game == GAME_GRIDBUGS) { gb_init(1); }
-        if (current_game == GAME_TANKS) { tk_init(engine_frame_count()); }
-        if (current_game == GAME_MCPCONE) { mcp_init(); }
-    }
-    if (input_key(KEY_1) == 1) { current_game = GAME_LIGHTCYCLES; lc_init(); }
-    if (input_key(KEY_2) == 1) { current_game = GAME_GRIDBUGS; gb_init(1); }
-    if (input_key(KEY_3) == 1) { current_game = GAME_TANKS; tk_init(engine_frame_count()); }
-    if (input_key(KEY_4) == 1) { current_game = GAME_MCPCONE; mcp_init(); }
+    # Enter or number key to launch via title card
+    if (input_key(KEY_ENTER) == 1) { _menu_launch(menu_selection); }
+    if (input_key(KEY_1) == 1) { _menu_launch(GAME_LIGHTCYCLES); }
+    if (input_key(KEY_2) == 1) { _menu_launch(GAME_GRIDBUGS); }
+    if (input_key(KEY_3) == 1) { _menu_launch(GAME_TANKS); }
+    if (input_key(KEY_4) == 1) { _menu_launch(GAME_MCPCONE); }
 
+    return 0;
+}
+
+# Title card rendering -- neon text + preview graphic per game
+fn title_render(fb, game) {
+    draw_clear(fb);
+
+    if (game == GAME_LIGHTCYCLES) {
+        draw_text(fb, "LIGHT CYCLES", 52, 70, COLOR_CYAN, 3);
+        draw_hline(fb, 60, 155, 130, COLOR_CYAN);
+        draw_vline(fb, 155, 130, 150, COLOR_CYAN);
+        draw_hline(fb, 165, 260, 130, COLOR_ORANGE);
+        draw_vline(fb, 165, 110, 130, COLOR_ORANGE);
+    }
+    if (game == GAME_GRIDBUGS) {
+        draw_text(fb, "GRID BUGS", 76, 70, COLOR_CYAN, 3);
+        draw_hline(fb, 80, 240, 130, COLOR_BLUE);
+        draw_hline(fb, 80, 240, 150, COLOR_BLUE);
+        draw_vline(fb, 120, 120, 160, COLOR_BLUE);
+        draw_vline(fb, 200, 120, 160, COLOR_BLUE);
+        draw_line(fb, 156, 136, 164, 144, COLOR_RED);
+        draw_line(fb, 164, 136, 156, 144, COLOR_RED);
+    }
+    if (game == GAME_TANKS) {
+        draw_text(fb, "BATTLE TANKS", 52, 70, COLOR_CYAN, 3);
+        draw_filled_rect(fb, 153, 132, 14, 14, COLOR_CYAN);
+        draw_vline(fb, 160, 120, 132, COLOR_WHITE);
+        draw_filled_rect(fb, 110, 130, 5, 5, COLOR_WHITE);
+    }
+    if (game == GAME_MCPCONE) {
+        draw_text(fb, "MCP CONE", 88, 70, COLOR_CYAN, 3);
+        draw_rect(fb, 120, 115, 80, 50, COLOR_RED);
+        draw_rect(fb, 135, 125, 50, 30, COLOR_RED);
+        draw_rect(fb, 150, 133, 20, 14, COLOR_RED);
+        draw_filled_rect(fb, 157, 138, 6, 4, COLOR_WHITE);
+    }
+
+    draw_text(fb, "GET READY", 104, 180, COLOR_DIM_BLUE, 2);
+
+    var hi = scores_get(game);
+    if (hi > 0) {
+        draw_text(fb, "BEST:", 112, 200, COLOR_DIM_BLUE, 1);
+        draw_number(fb, hi, 136, 200, COLOR_DIM_BLUE, 1);
+    }
+
+    return 0;
+}
+
+fn _title_start_game() {
+    current_game = pending_game;
+    game_score = 0;
+    if (current_game == GAME_LIGHTCYCLES) { lc_init(); }
+    if (current_game == GAME_GRIDBUGS) { gb_init(1); }
+    if (current_game == GAME_TANKS) { tk_init(engine_frame_count()); }
+    if (current_game == GAME_MCPCONE) { mcp_init(); }
+    title_active = 0;
     return 0;
 }
 
@@ -229,17 +367,22 @@ fn gb_handle_input() {
 
 # Game over screen
 fn gameover_render(fb, winner) {
-    # Overlay game over text
     if (winner == 1) {
-        draw_text(fb, "PLAYER 1 WINS", 64, 110, COLOR_CYAN, 3);
+        draw_text(fb, "PLAYER 1 WINS", 64, 100, COLOR_CYAN, 3);
     }
     if (winner == 2) {
-        draw_text(fb, "PLAYER 2 WINS", 64, 110, COLOR_ORANGE, 3);
+        draw_text(fb, "PLAYER 2 WINS", 64, 100, COLOR_ORANGE, 3);
     }
     if (winner == 0) {
-        draw_text(fb, "DRAW", 120, 110, COLOR_WHITE, 3);
+        draw_text(fb, "DRAW", 120, 100, COLOR_WHITE, 3);
     }
-    draw_text(fb, "ESC FOR MENU", 88, 150, COLOR_DIM_BLUE, 2);
+    draw_text(fb, "SCORE:", 100, 135, COLOR_DIM_BLUE, 2);
+    draw_number(fb, game_score, 172, 135, COLOR_WHITE, 2);
+    var hi = scores_get(current_game);
+    if (game_score >= hi) {
+        draw_text(fb, "NEW BEST", 104, 158, COLOR_GREEN, 2);
+    }
+    draw_text(fb, "ESC FOR MENU", 88, 180, COLOR_DIM_BLUE, 2);
     return 0;
 }
 
@@ -264,7 +407,10 @@ fn lc_game_tick(fb) {
         lc_tick_counter = 0;
         if (lc_game_done == 0) {
             lc_update();
+            game_score = game_score + 10;
             if (lc_game_over() == 1) {
+                if (lc_winner() == 1) { game_score = game_score + 1000; }
+                scores_update(GAME_LIGHTCYCLES, game_score);
                 lc_game_done = 1;
             }
         }
@@ -306,10 +452,11 @@ fn gb_game_tick(fb) {
         if (gb_game_done == 0) {
             gb_update();
             if (gb_player_alive == 0) {
+                scores_update(GAME_GRIDBUGS, game_score);
                 gb_game_done = 1;
             }
             if (gb_level_complete() == 1) {
-                # Next level
+                game_score = game_score + gb_level * 500;
                 gb_init(gb_level + 1);
             }
         }
@@ -318,8 +465,14 @@ fn gb_game_tick(fb) {
     gb_render(fb);
 
     if (gb_game_done == 1) {
-        draw_text(fb, "GAME OVER", 88, 100, COLOR_RED, 3);
-        draw_text(fb, "ESC FOR MENU", 88, 140, COLOR_DIM_BLUE, 2);
+        draw_text(fb, "GAME OVER", 88, 90, COLOR_RED, 3);
+        draw_text(fb, "SCORE:", 100, 125, COLOR_DIM_BLUE, 2);
+        draw_number(fb, game_score, 172, 125, COLOR_WHITE, 2);
+        var hi = scores_get(GAME_GRIDBUGS);
+        if (game_score >= hi) {
+            draw_text(fb, "NEW BEST", 104, 148, COLOR_GREEN, 2);
+        }
+        draw_text(fb, "ESC FOR MENU", 88, 170, COLOR_DIM_BLUE, 2);
         if (input_key(KEY_ESC) == 1) {
             current_game = GAME_MENU;
             gb_game_done = 0;
@@ -367,6 +520,8 @@ fn tk_game_tick(fb) {
         if (tk_game_done == 0) {
             tk_update();
             if (tk_game_over() == 1) {
+                if (tk_winner() == 1) { game_score = 1000; }
+                scores_update(GAME_TANKS, game_score);
                 tk_game_done = 1;
             }
         }
@@ -416,6 +571,16 @@ fn mcp_game_tick(fb) {
         if (mcp_game_done == 0) {
             mcp_update();
             if (mcp_won == 1) {
+                # Score: 100 per ring broken + 1000 for win
+                var r = 0;
+                while (r < MCP_RINGS) {
+                    if (_mcp_ring_get(&mcp_ring_alive, r) == 0) {
+                        game_score = game_score + 100;
+                    }
+                    r = r + 1;
+                }
+                game_score = game_score + 1000;
+                scores_update(GAME_MCPCONE, game_score);
                 mcp_game_done = 1;
             }
         }
@@ -424,8 +589,14 @@ fn mcp_game_tick(fb) {
     mcp_render(fb);
 
     if (mcp_game_done == 1) {
-        draw_text(fb, "MCP DEFEATED", 64, 100, COLOR_GREEN, 3);
-        draw_text(fb, "ESC FOR MENU", 88, 140, COLOR_DIM_BLUE, 2);
+        draw_text(fb, "MCP DEFEATED", 64, 90, COLOR_GREEN, 3);
+        draw_text(fb, "SCORE:", 100, 125, COLOR_DIM_BLUE, 2);
+        draw_number(fb, game_score, 172, 125, COLOR_WHITE, 2);
+        var hi = scores_get(GAME_MCPCONE);
+        if (game_score >= hi) {
+            draw_text(fb, "NEW BEST", 104, 148, COLOR_GREEN, 2);
+        }
+        draw_text(fb, "ESC FOR MENU", 88, 170, COLOR_DIM_BLUE, 2);
         if (input_key(KEY_ESC) == 1) {
             current_game = GAME_MENU;
             mcp_game_done = 0;
@@ -446,6 +617,7 @@ fn main() {
 
     var fb = engine_init();
     input_init();
+    scores_load();
 
     current_game = GAME_MENU;
     game_running = 1;
@@ -454,22 +626,31 @@ fn main() {
         engine_tick_begin();
         input_poll();
 
-        # Dispatch based on current game
-        if (current_game == GAME_MENU) {
-            menu_update();
-            menu_render(fb);
-        }
-        if (current_game == GAME_LIGHTCYCLES) {
-            lc_game_tick(fb);
-        }
-        if (current_game == GAME_GRIDBUGS) {
-            gb_game_tick(fb);
-        }
-        if (current_game == GAME_TANKS) {
-            tk_game_tick(fb);
-        }
-        if (current_game == GAME_MCPCONE) {
-            mcp_game_tick(fb);
+        if (title_active == 1) {
+            # Title card transition
+            title_render(fb, pending_game);
+            title_timer = title_timer - 1;
+            if (title_timer <= 0) {
+                _title_start_game();
+            }
+        } else {
+            # Dispatch based on current game
+            if (current_game == GAME_MENU) {
+                menu_update();
+                menu_render(fb);
+            }
+            if (current_game == GAME_LIGHTCYCLES) {
+                lc_game_tick(fb);
+            }
+            if (current_game == GAME_GRIDBUGS) {
+                gb_game_tick(fb);
+            }
+            if (current_game == GAME_TANKS) {
+                tk_game_tick(fb);
+            }
+            if (current_game == GAME_MCPCONE) {
+                mcp_game_tick(fb);
+            }
         }
 
         glow_apply(fb, SCREEN_W, SCREEN_H);
