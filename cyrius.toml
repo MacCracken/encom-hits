@@ -1,0 +1,16 @@
+[project]
+name = "encom-hits"
+version = "0.1.0"
+description = "ENCOM's Hits — retro arcade game collection in Cyrius"
+license = "GPL-3.0-only"
+repository = "https://github.com/MacCracken/encom-hits"
+
+[deps]
+# Zero deps. Pure framebuffer rendering. Neon on black.
+
+[build]
+src = "src/main.cyr"
+out = "build/encom-hits"
+
+[toolchain]
+min = "4.8.5"

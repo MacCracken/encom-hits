@@ -1,0 +1,189 @@
+// encom-hits — Light Cycles
+// Two players leave walls behind them on a grid.
+// Last one standing wins. Instant death on any collision.
+//
+// This is the simplest game in the collection.
+// Grid-based, 4-direction movement, collision = death.
+//
+// Grid: 80x60 cells, each 4x4 pixels on a 320x240 framebuffer.
+// Cell states: empty (0), player 1 trail (1), player 2 trail (2), wall (3).
+
+// The grid stores cell ownership
+var lc_grid[4800];  // 80 * 60
+
+// Player state: x, y, direction, alive
+var lc_p1_x;
+var lc_p1_y;
+var lc_p1_dir;
+var lc_p1_alive;
+
+var lc_p2_x;
+var lc_p2_y;
+var lc_p2_dir;
+var lc_p2_alive;
+
+fn lc_init() {
+    // Clear grid
+    var i = 0;
+    while (i < 4800) {
+        lc_grid[i] = 0;
+        i = i + 1;
+    }
+
+    // Player 1: left side, moving right
+    lc_p1_x = 20;
+    lc_p1_y = 30;
+    lc_p1_dir = DIR_RIGHT;
+    lc_p1_alive = 1;
+
+    // Player 2: right side, moving left
+    lc_p2_x = 60;
+    lc_p2_y = 30;
+    lc_p2_dir = DIR_LEFT;
+    lc_p2_alive = 1;
+
+    return 0;
+}
+
+fn lc_cell(x, y) {
+    if (x < 0) { return 3; }  // wall
+    if (x >= LC_GRID_W) { return 3; }
+    if (y < 0) { return 3; }
+    if (y >= LC_GRID_H) { return 3; }
+    return lc_grid[y * LC_GRID_W + x];
+}
+
+fn lc_set_cell(x, y, val) {
+    if (x < 0) { return 0; }
+    if (x >= LC_GRID_W) { return 0; }
+    if (y < 0) { return 0; }
+    if (y >= LC_GRID_H) { return 0; }
+    lc_grid[y * LC_GRID_W + x] = val;
+    return 0;
+}
+
+fn lc_move_player(px, py, dir) {
+    // Returns new position via modifying px/py pointers
+    // For now, inline the movement
+    var x = px;
+    var y = py;
+    if (dir == DIR_UP) { y = y - 1; }
+    if (dir == DIR_DOWN) { y = y + 1; }
+    if (dir == DIR_LEFT) { x = x - 1; }
+    if (dir == DIR_RIGHT) { x = x + 1; }
+    // Return encoded: x * 1000 + y (simple packing)
+    return x * 1000 + y;
+}
+
+fn lc_update() {
+    // Move player 1
+    if (lc_p1_alive) {
+        var packed = lc_move_player(lc_p1_x, lc_p1_y, lc_p1_dir);
+        var nx = packed / 1000;
+        var ny = packed % 1000;
+
+        // Check collision
+        if (lc_cell(nx, ny) != 0) {
+            lc_p1_alive = 0;
+        } else {
+            lc_set_cell(lc_p1_x, lc_p1_y, 1);  // leave trail
+            lc_p1_x = nx;
+            lc_p1_y = ny;
+        }
+    }
+
+    // Move player 2
+    if (lc_p2_alive) {
+        var packed = lc_move_player(lc_p2_x, lc_p2_y, lc_p2_dir);
+        var nx = packed / 1000;
+        var ny = packed % 1000;
+
+        if (lc_cell(nx, ny) != 0) {
+            lc_p2_alive = 0;
+        } else {
+            lc_set_cell(lc_p2_x, lc_p2_y, 2);
+            lc_p2_x = nx;
+            lc_p2_y = ny;
+        }
+    }
+
+    return 0;
+}
+
+fn lc_render(fb) {
+    draw_clear(fb);
+
+    // Draw grid lines (dim blue)
+    var gx = 0;
+    while (gx < LC_GRID_W) {
+        draw_vline(fb, gx * LC_CELL_W, 0, SCREEN_H - 1, COLOR_DIM_BLUE);
+        gx = gx + 10;  // every 10th line for subtlety
+    }
+    var gy = 0;
+    while (gy < LC_GRID_H) {
+        draw_hline(fb, 0, SCREEN_W - 1, gy * LC_CELL_H, COLOR_DIM_BLUE);
+        gy = gy + 10;
+    }
+
+    // Draw trails
+    var y = 0;
+    while (y < LC_GRID_H) {
+        var x = 0;
+        while (x < LC_GRID_W) {
+            var cell = lc_grid[y * LC_GRID_W + x];
+            if (cell == 1) {
+                draw_filled_rect(fb, x * LC_CELL_W, y * LC_CELL_H,
+                                 LC_CELL_W, LC_CELL_H, COLOR_CYAN);
+            }
+            if (cell == 2) {
+                draw_filled_rect(fb, x * LC_CELL_W, y * LC_CELL_H,
+                                 LC_CELL_W, LC_CELL_H, COLOR_ORANGE);
+            }
+            x = x + 1;
+        }
+        y = y + 1;
+    }
+
+    // Draw player heads (brighter)
+    if (lc_p1_alive) {
+        draw_filled_rect(fb, lc_p1_x * LC_CELL_W, lc_p1_y * LC_CELL_H,
+                         LC_CELL_W, LC_CELL_H, COLOR_WHITE);
+    }
+    if (lc_p2_alive) {
+        draw_filled_rect(fb, lc_p2_x * LC_CELL_W, lc_p2_y * LC_CELL_H,
+                         LC_CELL_W, LC_CELL_H, COLOR_WHITE);
+    }
+
+    return 0;
+}
+
+fn lc_set_direction(player, dir) {
+    // Prevent 180-degree reversal (instant death)
+    if (player == 1) {
+        if (lc_p1_dir == DIR_UP) { if (dir == DIR_DOWN) { return 0; } }
+        if (lc_p1_dir == DIR_DOWN) { if (dir == DIR_UP) { return 0; } }
+        if (lc_p1_dir == DIR_LEFT) { if (dir == DIR_RIGHT) { return 0; } }
+        if (lc_p1_dir == DIR_RIGHT) { if (dir == DIR_LEFT) { return 0; } }
+        lc_p1_dir = dir;
+    }
+    if (player == 2) {
+        if (lc_p2_dir == DIR_UP) { if (dir == DIR_DOWN) { return 0; } }
+        if (lc_p2_dir == DIR_DOWN) { if (dir == DIR_UP) { return 0; } }
+        if (lc_p2_dir == DIR_LEFT) { if (dir == DIR_RIGHT) { return 0; } }
+        if (lc_p2_dir == DIR_RIGHT) { if (dir == DIR_LEFT) { return 0; } }
+        lc_p2_dir = dir;
+    }
+    return 0;
+}
+
+fn lc_game_over() {
+    if (lc_p1_alive == 0) { return 1; }
+    if (lc_p2_alive == 0) { return 1; }
+    return 0;
+}
+
+fn lc_winner() {
+    if (lc_p1_alive) { if (lc_p2_alive == 0) { return 1; } }
+    if (lc_p2_alive) { if (lc_p1_alive == 0) { return 2; } }
+    return 0;  // draw (both died same frame)
+}

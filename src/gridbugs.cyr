@@ -1,0 +1,254 @@
+// encom-hits — Grid Bugs
+// Player moves along grid lines. Bugs chase via shortest path.
+// Reach the I/O Tower to clear the level. Contact with a bug = death.
+//
+// Grid: 16x12 nodes connected by lines. Movement constrained to lines.
+// Bugs spawn at edges, pathfind toward player via A* on the grid graph.
+
+// Grid node connectivity (adjacency)
+// Each node can connect to up to 4 neighbors (up/down/left/right).
+// Not all connections exist — some are "broken" lines the player can't traverse.
+var gb_connections[768];  // 16 * 12 * 4 (N/S/E/W per node)
+
+// Bug positions (up to 8 bugs)
+var gb_bug_x[8];
+var gb_bug_y[8];
+var gb_bug_alive[8];
+var gb_bug_count;
+
+// Player
+var gb_player_x;
+var gb_player_y;
+var gb_player_alive;
+var gb_player_moving;
+var gb_player_dir;
+var gb_player_target_x;
+var gb_player_target_y;
+
+// Goal (I/O Tower)
+var gb_tower_x;
+var gb_tower_y;
+
+// Level
+var gb_level;
+var gb_score;
+
+fn gb_init(level) {
+    gb_level = level;
+    gb_score = 0;
+    gb_player_alive = 1;
+    gb_player_moving = 0;
+    gb_player_dir = DIR_NONE;
+
+    // Player starts center
+    gb_player_x = GB_GRID_W / 2;
+    gb_player_y = GB_GRID_H / 2;
+
+    // Tower at a corner
+    gb_tower_x = GB_GRID_W - 2;
+    gb_tower_y = 1;
+
+    // Initialize full grid connectivity (all lines present)
+    var i = 0;
+    while (i < 768) {
+        gb_connections[i] = 1;
+        i = i + 1;
+    }
+
+    // Remove some connections based on level (creates maze-like paths)
+    // TODO: procedural connection removal based on level seed
+
+    // Remove boundary connections (can't go off-grid)
+    var x = 0;
+    while (x < GB_GRID_W) {
+        // Top row: no north connection
+        gb_connections[(0 * GB_GRID_W + x) * 4 + 0] = 0;
+        // Bottom row: no south connection
+        gb_connections[((GB_GRID_H - 1) * GB_GRID_W + x) * 4 + 1] = 0;
+        x = x + 1;
+    }
+    var y = 0;
+    while (y < GB_GRID_H) {
+        // Left column: no west connection
+        gb_connections[(y * GB_GRID_W + 0) * 4 + 3] = 0;
+        // Right column: no east connection
+        gb_connections[(y * GB_GRID_W + GB_GRID_W - 1) * 4 + 2] = 0;
+        y = y + 1;
+    }
+
+    // Spawn bugs at edges
+    gb_bug_count = 3 + level;
+    if (gb_bug_count > 8) { gb_bug_count = 8; }
+    i = 0;
+    while (i < gb_bug_count) {
+        gb_bug_alive[i] = 1;
+        // Alternate spawning on edges
+        if (i % 4 == 0) { gb_bug_x[i] = 0; gb_bug_y[i] = i * 2; }
+        if (i % 4 == 1) { gb_bug_x[i] = GB_GRID_W - 1; gb_bug_y[i] = i * 2; }
+        if (i % 4 == 2) { gb_bug_x[i] = i * 2; gb_bug_y[i] = 0; }
+        if (i % 4 == 3) { gb_bug_x[i] = i * 2; gb_bug_y[i] = GB_GRID_H - 1; }
+        i = i + 1;
+    }
+
+    return 0;
+}
+
+fn gb_can_move(x, y, dir) {
+    // Check if node (x,y) has a connection in direction dir
+    // dir: 0=N, 1=S, 2=E, 3=W
+    if (x < 0) { return 0; }
+    if (x >= GB_GRID_W) { return 0; }
+    if (y < 0) { return 0; }
+    if (y >= GB_GRID_H) { return 0; }
+    var idx = (y * GB_GRID_W + x) * 4 + dir;
+    return gb_connections[idx];
+}
+
+fn gb_dir_to_conn(dir) {
+    // Convert DIR_* enum to connection index (0=N, 1=S, 2=E, 3=W)
+    if (dir == DIR_UP) { return 0; }
+    if (dir == DIR_DOWN) { return 1; }
+    if (dir == DIR_RIGHT) { return 2; }
+    if (dir == DIR_LEFT) { return 3; }
+    return 0;
+}
+
+fn gb_update() {
+    if (gb_player_alive == 0) { return 0; }
+
+    // Move player along grid line
+    if (gb_player_dir != DIR_NONE) {
+        var conn = gb_dir_to_conn(gb_player_dir);
+        if (gb_can_move(gb_player_x, gb_player_y, conn)) {
+            if (gb_player_dir == DIR_UP) { gb_player_y = gb_player_y - 1; }
+            if (gb_player_dir == DIR_DOWN) { gb_player_y = gb_player_y + 1; }
+            if (gb_player_dir == DIR_LEFT) { gb_player_x = gb_player_x - 1; }
+            if (gb_player_dir == DIR_RIGHT) { gb_player_x = gb_player_x + 1; }
+        }
+        gb_player_dir = DIR_NONE;  // stop after one step (discrete movement)
+    }
+
+    // Move bugs toward player (simple chase — TODO: A* pathfinding)
+    var i = 0;
+    while (i < gb_bug_count) {
+        if (gb_bug_alive[i]) {
+            // Simple chase: move in the direction that reduces distance
+            var dx = gb_player_x - gb_bug_x[i];
+            var dy = gb_player_y - gb_bug_y[i];
+
+            // Prefer the axis with greater distance
+            var moved = 0;
+            if (dx > 0) {
+                if (gb_can_move(gb_bug_x[i], gb_bug_y[i], 2)) {
+                    gb_bug_x[i] = gb_bug_x[i] + 1;
+                    moved = 1;
+                }
+            }
+            if (moved == 0) {
+                if (dx < 0) {
+                    if (gb_can_move(gb_bug_x[i], gb_bug_y[i], 3)) {
+                        gb_bug_x[i] = gb_bug_x[i] - 1;
+                        moved = 1;
+                    }
+                }
+            }
+            if (moved == 0) {
+                if (dy > 0) {
+                    if (gb_can_move(gb_bug_x[i], gb_bug_y[i], 1)) {
+                        gb_bug_y[i] = gb_bug_y[i] + 1;
+                    }
+                }
+                if (dy < 0) {
+                    if (gb_can_move(gb_bug_x[i], gb_bug_y[i], 0)) {
+                        gb_bug_y[i] = gb_bug_y[i] - 1;
+                    }
+                }
+            }
+
+            // Check collision with player
+            if (gb_bug_x[i] == gb_player_x) {
+                if (gb_bug_y[i] == gb_player_y) {
+                    gb_player_alive = 0;
+                }
+            }
+        }
+        i = i + 1;
+    }
+
+    // Check if player reached I/O Tower
+    if (gb_player_x == gb_tower_x) {
+        if (gb_player_y == gb_tower_y) {
+            gb_score = gb_score + 1000;
+            // Level complete — caller should advance
+        }
+    }
+
+    return 0;
+}
+
+fn gb_render(fb) {
+    draw_clear(fb);
+
+    // Draw grid lines (only where connections exist)
+    var y = 0;
+    while (y < GB_GRID_H) {
+        var x = 0;
+        while (x < GB_GRID_W) {
+            var px = x * GB_CELL_W + GB_CELL_W / 2;
+            var py = y * GB_CELL_H + GB_CELL_H / 2;
+
+            // East connection
+            if (gb_can_move(x, y, 2)) {
+                draw_hline(fb, px, px + GB_CELL_W, py, COLOR_BLUE);
+            }
+            // South connection
+            if (gb_can_move(x, y, 1)) {
+                draw_vline(fb, px, py, py + GB_CELL_H, COLOR_BLUE);
+            }
+            // Node dot
+            draw_pixel(fb, px, py, COLOR_BLUE);
+
+            x = x + 1;
+        }
+        y = y + 1;
+    }
+
+    // Draw I/O Tower (green diamond)
+    var tx = gb_tower_x * GB_CELL_W + GB_CELL_W / 2;
+    var ty = gb_tower_y * GB_CELL_H + GB_CELL_H / 2;
+    draw_line(fb, tx, ty - 4, tx + 4, ty, COLOR_GREEN);
+    draw_line(fb, tx + 4, ty, tx, ty + 4, COLOR_GREEN);
+    draw_line(fb, tx, ty + 4, tx - 4, ty, COLOR_GREEN);
+    draw_line(fb, tx - 4, ty, tx, ty - 4, COLOR_GREEN);
+
+    // Draw bugs (red)
+    var i = 0;
+    while (i < gb_bug_count) {
+        if (gb_bug_alive[i]) {
+            var bx = gb_bug_x[i] * GB_CELL_W + GB_CELL_W / 2;
+            var by = gb_bug_y[i] * GB_CELL_H + GB_CELL_H / 2;
+            // Bug: small X shape
+            draw_line(fb, bx - 2, by - 2, bx + 2, by + 2, COLOR_RED);
+            draw_line(fb, bx + 2, by - 2, bx - 2, by + 2, COLOR_RED);
+        }
+        i = i + 1;
+    }
+
+    // Draw player (cyan)
+    if (gb_player_alive) {
+        var ppx = gb_player_x * GB_CELL_W + GB_CELL_W / 2;
+        var ppy = gb_player_y * GB_CELL_H + GB_CELL_H / 2;
+        draw_filled_rect(fb, ppx - 2, ppy - 2, 5, 5, COLOR_CYAN);
+    }
+
+    return 0;
+}
+
+fn gb_level_complete() {
+    if (gb_player_x == gb_tower_x) {
+        if (gb_player_y == gb_tower_y) {
+            return 1;
+        }
+    }
+    return 0;
+}

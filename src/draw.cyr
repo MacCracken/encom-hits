@@ -1,0 +1,143 @@
+// encom-hits — drawing primitives
+// Everything is lines. The art is math.
+// Bresenham's line algorithm is the foundation — every visual builds from it.
+
+// Draw a line using Bresenham's algorithm.
+// All game visuals are composed of lines — no sprites, no textures.
+fn draw_line(fb, x0, y0, x1, y1, color) {
+    var dx = x1 - x0;
+    var dy = y1 - y0;
+    if (dx < 0) { dx = 0 - dx; }
+    if (dy < 0) { dy = 0 - dy; }
+
+    var sx = 1;
+    if (x0 > x1) { sx = 0 - 1; }
+    var sy = 1;
+    if (y0 > y1) { sy = 0 - 1; }
+
+    var err = dx - dy;
+    var x = x0;
+    var y = y0;
+
+    while (1) {
+        // Plot pixel if in bounds
+        if (x >= 0) {
+            if (x < SCREEN_W) {
+                if (y >= 0) {
+                    if (y < SCREEN_H) {
+                        var offset = (y * SCREEN_W + x) * 4;
+                        store8(fb + offset, color & 255);
+                        store8(fb + offset + 1, (color >> 8) & 255);
+                        store8(fb + offset + 2, (color >> 16) & 255);
+                        store8(fb + offset + 3, 255);
+                    }
+                }
+            }
+        }
+
+        if (x == x1) {
+            if (y == y1) {
+                return 0;
+            }
+        }
+
+        var e2 = err * 2;
+        if (e2 > (0 - dy)) {
+            err = err - dy;
+            x = x + sx;
+        }
+        if (e2 < dx) {
+            err = err + dx;
+            y = y + sy;
+        }
+    }
+    return 0;
+}
+
+// Draw a horizontal line (fast path — no Bresenham needed).
+fn draw_hline(fb, x0, x1, y, color) {
+    if (y < 0) { return 0; }
+    if (y >= SCREEN_H) { return 0; }
+    var start = x0;
+    var end = x1;
+    if (start > end) { var tmp = start; start = end; end = tmp; }
+    if (start < 0) { start = 0; }
+    if (end >= SCREEN_W) { end = SCREEN_W - 1; }
+
+    var x = start;
+    while (x <= end) {
+        var offset = (y * SCREEN_W + x) * 4;
+        store8(fb + offset, color & 255);
+        store8(fb + offset + 1, (color >> 8) & 255);
+        store8(fb + offset + 2, (color >> 16) & 255);
+        store8(fb + offset + 3, 255);
+        x = x + 1;
+    }
+    return 0;
+}
+
+// Draw a vertical line (fast path).
+fn draw_vline(fb, x, y0, y1, color) {
+    if (x < 0) { return 0; }
+    if (x >= SCREEN_W) { return 0; }
+    var start = y0;
+    var end = y1;
+    if (start > end) { var tmp = start; start = end; end = tmp; }
+    if (start < 0) { start = 0; }
+    if (end >= SCREEN_H) { end = SCREEN_H - 1; }
+
+    var y = start;
+    while (y <= end) {
+        var offset = (y * SCREEN_W + x) * 4;
+        store8(fb + offset, color & 255);
+        store8(fb + offset + 1, (color >> 8) & 255);
+        store8(fb + offset + 2, (color >> 16) & 255);
+        store8(fb + offset + 3, 255);
+        y = y + 1;
+    }
+    return 0;
+}
+
+// Draw a rectangle outline.
+fn draw_rect(fb, x, y, w, h, color) {
+    draw_hline(fb, x, x + w - 1, y, color);
+    draw_hline(fb, x, x + w - 1, y + h - 1, color);
+    draw_vline(fb, x, y, y + h - 1, color);
+    draw_vline(fb, x + w - 1, y, y + h - 1, color);
+    return 0;
+}
+
+// Fill a rectangle.
+fn draw_filled_rect(fb, x, y, w, h, color) {
+    var row = 0;
+    while (row < h) {
+        draw_hline(fb, x, x + w - 1, y + row, color);
+        row = row + 1;
+    }
+    return 0;
+}
+
+// Clear the framebuffer to black.
+fn draw_clear(fb) {
+    var i = 0;
+    var total = SCREEN_W * SCREEN_H * 4;
+    while (i < total) {
+        store8(fb + i, 0);
+        i = i + 1;
+    }
+    return 0;
+}
+
+// Plot a single pixel.
+fn draw_pixel(fb, x, y, color) {
+    if (x < 0) { return 0; }
+    if (x >= SCREEN_W) { return 0; }
+    if (y < 0) { return 0; }
+    if (y >= SCREEN_H) { return 0; }
+    var offset = (y * SCREEN_W + x) * 4;
+    store8(fb + offset, color & 255);
+    store8(fb + offset + 1, (color >> 8) & 255);
+    store8(fb + offset + 2, (color >> 16) & 255);
+    store8(fb + offset + 3, 255);
+    return 0;
+}

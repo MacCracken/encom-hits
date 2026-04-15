@@ -1,0 +1,25 @@
+// encom-hits — ENCOM's Hits
+// Retro arcade game collection in Cyrius.
+// Four games. Neon on black. The art is math.
+//
+// Light Cycles | Grid Bugs | Battle Tanks | MCP Cone
+
+fn main() {
+    println("ENCOM's Hits v0.1.0");
+    println("--------------------");
+    println("1. Light Cycles");
+    println("2. Grid Bugs");
+    println("3. Battle Tanks");
+    println("4. MCP Cone");
+    println("");
+    println("End of line.");
+
+    // TODO: init framebuffer
+    // TODO: game select menu
+    // TODO: game loop dispatch
+
+    return 0;
+}
+
+var exit_code = main();
+syscall(60, exit_code);

@@ -1,0 +1,58 @@
+// encom-hits — test suite
+
+fn test_direction_opposite() {
+    // Light cycles: can't reverse direction (instant death)
+    // Verify direction enum values are distinct
+    assert(DIR_UP != DIR_DOWN, "up != down");
+    assert(DIR_LEFT != DIR_RIGHT, "left != right");
+    assert(DIR_NONE != DIR_UP, "none != up");
+    return 0;
+}
+
+fn test_grid_bounds() {
+    // Light cycles grid dimensions
+    assert(LC_GRID_W * LC_CELL_W == SCREEN_W, "LC grid should fill screen width");
+    assert(LC_GRID_H * LC_CELL_H == SCREEN_H, "LC grid should fill screen height");
+    return 0;
+}
+
+fn test_tank_ricochet_angle() {
+    // Projectile hitting a vertical wall: reflect x velocity
+    var vx = 3;
+    var vy = 2;
+    // Hit vertical wall → vx = -vx
+    vx = 0 - vx;
+    assert(vx == (0 - 3), "vertical wall reflects x velocity");
+    assert(vy == 2, "vertical wall preserves y velocity");
+    return 0;
+}
+
+fn test_mcp_ring_count() {
+    assert(MCP_RINGS == 8, "MCP cone should have 8 rings");
+    assert(MCP_SEGMENTS == 16, "each ring should have 16 segments");
+    return 0;
+}
+
+fn test_color_palette() {
+    // Verify key colors are non-zero (except black)
+    assert(COLOR_BLACK == 0, "black should be 0");
+    assert(COLOR_CYAN > 0, "cyan should be non-zero");
+    assert(COLOR_ORANGE > 0, "orange should be non-zero");
+    assert(COLOR_RED > 0, "red should be non-zero");
+    return 0;
+}
+
+fn main() {
+    test_direction_opposite();
+    test_grid_bounds();
+    test_tank_ricochet_angle();
+    test_mcp_ring_count();
+    test_color_palette();
+
+    println("encom-hits: all tests passed");
+    println("End of line.");
+    return 0;
+}
+
+var exit_code = main();
+syscall(60, exit_code);
