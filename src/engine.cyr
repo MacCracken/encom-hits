@@ -41,6 +41,9 @@ var _target_ns = 16666667;  # 60fps = 16.667ms
 # Frame counter
 var _frame_count = 0;
 
+# PPM conversion buffer (allocated once in engine_init)
+var _ppm_buf = 0;
+
 fn engine_init() {
     # Allocate BGRA framebuffer: 320 * 240 * 4 = 307200 bytes
     _fb_size = SCREEN_W * SCREEN_H * 4;
@@ -54,6 +57,9 @@ fn engine_init() {
     if (_fb_fd < 0) {
         _fb_fd = 0 - 1;  # mark as unavailable
     }
+
+    # Allocate PPM buffer for fallback path (avoids per-frame alloc leak)
+    _ppm_buf = alloc(SCREEN_W * SCREEN_H * 3);
 
     _fb_ready = 1;
     _frame_count = 0;
@@ -82,28 +88,27 @@ fn engine_present() {
 }
 
 fn engine_write_ppm() {
-    var fd = syscall(SYS_OPEN, "/tmp/encom-hits.ppm", O_WRONLY | O_CREAT | O_TRUNC, 438);
+    var fd = syscall(SYS_OPEN, "/tmp/encom-hits.ppm", O_WRONLY | O_CREAT | O_TRUNC, 420);
     if (fd < 0) { return 0; }
 
     # PPM header: P6\n320 240\n255\n
     syscall(SYS_WRITE, fd, "P6\n320 240\n255\n", 15);
 
-    # Convert BGRA to RGB for PPM
-    var rgb_buf = alloc(SCREEN_W * SCREEN_H * 3);
+    # Convert BGRA to RGB for PPM (reuse pre-allocated buffer)
     var i = 0;
     var j = 0;
     while (i < _fb_size) {
         var b = load8(_fb_ptr + i);
         var g = load8(_fb_ptr + i + 1);
         var r = load8(_fb_ptr + i + 2);
-        store8(rgb_buf + j, r);
-        store8(rgb_buf + j + 1, g);
-        store8(rgb_buf + j + 2, b);
+        store8(_ppm_buf + j, r);
+        store8(_ppm_buf + j + 1, g);
+        store8(_ppm_buf + j + 2, b);
         i = i + 4;
         j = j + 3;
     }
 
-    syscall(SYS_WRITE, fd, rgb_buf, SCREEN_W * SCREEN_H * 3);
+    syscall(SYS_WRITE, fd, _ppm_buf, SCREEN_W * SCREEN_H * 3);
     syscall(SYS_CLOSE, fd);
     return 0;
 }

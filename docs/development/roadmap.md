@@ -81,7 +81,7 @@ The collection.
 | 1 | All 4 games complete and polished | In progress | All playable, AI fixed, scoring + high scores done |
 | 2 | Consistent visual identity (neon palette) | Done | All games use shared color palette |
 | 3 | Stable 60fps on all games | Done | Frame timing in engine.cyr, simple games |
-| 4 | Security audit (input, save files) | Not started | |
+| 4 | Security audit (input, save files) | Done | See CHANGELOG — 7 fixes across input, memory, file I/O |
 
 ## Future (separate repos, separate scope)
 

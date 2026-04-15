@@ -95,6 +95,18 @@ fn lc_update() {
         }
     }
 
+    # Head-on collision: both players on same cell = both die
+    if (lc_p1_alive) {
+        if (lc_p2_alive) {
+            if (lc_p1_x == lc_p2_x) {
+                if (lc_p1_y == lc_p2_y) {
+                    lc_p1_alive = 0;
+                    lc_p2_alive = 0;
+                }
+            }
+        }
+    }
+
     return 0;
 }
 

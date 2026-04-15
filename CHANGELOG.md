@@ -26,6 +26,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - **Number rendering** — draw_number function for integer display, digits 0-9 in bitmap font
 - **Game-over improvements** — score display, "NEW BEST" indicator on high scores
 
+### Fixed
+- Light Cycles head-on collision — both players moving to same cell now kills both (was: both survived)
+- Grid Bugs level completion no longer fires after death in same tick (death + tower arrival race condition)
+- "NEW BEST" indicator only shows on strictly new high score, not tied score
+- Removed dead code: unused `_maze_pop_x`/`_maze_pop_y` in grid.cyr
+- PPM fallback file permissions changed from 0666 to 0644 (consistency with scores.dat)
+
+### Security
+- **[CRITICAL] Bug spawn out-of-bounds** — gridbugs.cyr: bug indices 6-7 spawned at Y=12/14 on a 12-row grid (valid: 0-11). Clamped spawn coordinates with modulo.
+- **[CRITICAL] draw_number buffer overflow** — main.cyr: 8-slot digit buffer could overflow on 19-digit i64 values. Added cap at 8 digits (99,999,999 max display).
+- **[CRITICAL] PPM fallback memory leak** — engine.cyr: `alloc()` called per-frame in PPM path, never freed. Moved to one-time allocation in engine_init.
+- **[HIGH] Ctrl+C now triggers graceful quit** — input.cyr: with ISIG disabled, Ctrl+C was silently eaten. Now maps ETX (byte 3) to KEY_Q for clean terminal restore.
+- **[HIGH] Score file validation** — main.cyr: scores_load now clamps values to [0, 99999999] after reading, preventing crafted scores.dat from causing integer overflow in draw_number.
+- **[MEDIUM] scores.dat file permissions** — main.cyr: changed from 0666 (world-writable) to 0644 (owner-write only).
+- **[MEDIUM] PRNG zero-trap** — grid.cyr: xorshift could theoretically reach seed=0 and stay there. Added guard to reset to 1.
+
 ### Changed
 - Tank AI now uses maze-aware A* pathfinding instead of greedy chase (no longer walks into walls)
 - MCP Cone rings accelerate by +1 speed each time a ring is broken (difficulty ramp)

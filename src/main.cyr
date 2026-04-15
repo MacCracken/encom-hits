@@ -40,11 +40,20 @@ fn scores_load() {
     if (fd < 0) { return 0; }
     syscall(SYS_READ, fd, &_scores, 32);
     syscall(SYS_CLOSE, fd);
+
+    # Validate: clamp scores to sane range [0, 99999999]
+    var i = 0;
+    while (i < 4) {
+        var v = load64(&_scores + i * 8);
+        if (v < 0) { store64(&_scores + i * 8, 0); }
+        if (v > 99999999) { store64(&_scores + i * 8, 99999999); }
+        i = i + 1;
+    }
     return 0;
 }
 
 fn scores_save() {
-    var fd = syscall(SYS_OPEN, "scores.dat", O_WRONLY | O_CREAT | O_TRUNC, 438);
+    var fd = syscall(SYS_OPEN, "scores.dat", O_WRONLY | O_CREAT | O_TRUNC, 420);
     if (fd < 0) { return 0; }
     syscall(SYS_WRITE, fd, &_scores, 32);
     syscall(SYS_CLOSE, fd);
@@ -174,9 +183,12 @@ fn draw_number(fb, num, x, y, color, scale) {
     var n = num;
     if (n < 0) { n = 0 - n; }
     while (n > 0) {
-        store64(&digits + count * 8, n % 10);
-        count = count + 1;
-        n = n / 10;
+        if (count >= 8) { n = 0; }
+        else {
+            store64(&digits + count * 8, n % 10);
+            count = count + 1;
+            n = n / 10;
+        }
     }
     var i = count - 1;
     var cx = x;
@@ -379,7 +391,7 @@ fn gameover_render(fb, winner) {
     draw_text(fb, "SCORE:", 100, 135, COLOR_DIM_BLUE, 2);
     draw_number(fb, game_score, 172, 135, COLOR_WHITE, 2);
     var hi = scores_get(current_game);
-    if (game_score >= hi) {
+    if (game_score > hi) {
         draw_text(fb, "NEW BEST", 104, 158, COLOR_GREEN, 2);
     }
     draw_text(fb, "ESC FOR MENU", 88, 180, COLOR_DIM_BLUE, 2);
@@ -455,9 +467,11 @@ fn gb_game_tick(fb) {
                 scores_update(GAME_GRIDBUGS, game_score);
                 gb_game_done = 1;
             }
-            if (gb_level_complete() == 1) {
-                game_score = game_score + gb_level * 500;
-                gb_init(gb_level + 1);
+            if (gb_game_done == 0) {
+                if (gb_level_complete() == 1) {
+                    game_score = game_score + gb_level * 500;
+                    gb_init(gb_level + 1);
+                }
             }
         }
     }
@@ -469,7 +483,7 @@ fn gb_game_tick(fb) {
         draw_text(fb, "SCORE:", 100, 125, COLOR_DIM_BLUE, 2);
         draw_number(fb, game_score, 172, 125, COLOR_WHITE, 2);
         var hi = scores_get(GAME_GRIDBUGS);
-        if (game_score >= hi) {
+        if (game_score > hi) {
             draw_text(fb, "NEW BEST", 104, 148, COLOR_GREEN, 2);
         }
         draw_text(fb, "ESC FOR MENU", 88, 170, COLOR_DIM_BLUE, 2);
@@ -593,7 +607,7 @@ fn mcp_game_tick(fb) {
         draw_text(fb, "SCORE:", 100, 125, COLOR_DIM_BLUE, 2);
         draw_number(fb, game_score, 172, 125, COLOR_WHITE, 2);
         var hi = scores_get(GAME_MCPCONE);
-        if (game_score >= hi) {
+        if (game_score > hi) {
             draw_text(fb, "NEW BEST", 104, 148, COLOR_GREEN, 2);
         }
         draw_text(fb, "ESC FOR MENU", 88, 170, COLOR_DIM_BLUE, 2);

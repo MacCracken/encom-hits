@@ -125,6 +125,9 @@ fn input_poll() {
         if (ch == 100) { _key_set(KEY_D, 1); }
         if (ch == 68)  { _key_set(KEY_D, 1); }
 
+        # Ctrl+C (ETX, byte 3) — treat as quit for safe terminal restore
+        if (ch == 3) { _key_set(KEY_Q, 1); }
+
         # Action keys
         if (ch == 32)  { _key_set(KEY_SPACE, 1); }
         if (ch == 10)  { _key_set(KEY_ENTER, 1); }

@@ -89,16 +89,18 @@ fn gb_init(level) {
         y = y + 1;
     }
 
-    # Spawn bugs at edges
+    # Spawn bugs at edges, clamped to valid grid coordinates
     gb_bug_count = 3 + level;
     if (gb_bug_count > 8) { gb_bug_count = 8; }
     i = 0;
     while (i < gb_bug_count) {
         _gb_bug_set_alive(i, 1);
-        if (i % 4 == 0) { _gb_bug_set_x(i, 0); _gb_bug_set_y(i, i * 2); }
-        if (i % 4 == 1) { _gb_bug_set_x(i, GB_GRID_W - 1); _gb_bug_set_y(i, i * 2); }
-        if (i % 4 == 2) { _gb_bug_set_x(i, i * 2); _gb_bug_set_y(i, 0); }
-        if (i % 4 == 3) { _gb_bug_set_x(i, i * 2); _gb_bug_set_y(i, GB_GRID_H - 1); }
+        var by = (i * 2) % (GB_GRID_H - 1);
+        var bx = (i * 2) % (GB_GRID_W - 1);
+        if (i % 4 == 0) { _gb_bug_set_x(i, 0); _gb_bug_set_y(i, by); }
+        if (i % 4 == 1) { _gb_bug_set_x(i, GB_GRID_W - 1); _gb_bug_set_y(i, by); }
+        if (i % 4 == 2) { _gb_bug_set_x(i, bx); _gb_bug_set_y(i, 0); }
+        if (i % 4 == 3) { _gb_bug_set_x(i, bx); _gb_bug_set_y(i, GB_GRID_H - 1); }
         i = i + 1;
     }
 
