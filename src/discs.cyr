@@ -1,0 +1,275 @@
+# encom-hits -- Disc Arena
+# 1v1 disc combat inspired by Discs of TRON (1983).
+# Throw your disc at the opponent, ricochet off walls, catch the return.
+#
+# Player on left (cyan), AI on right (orange).
+# Discs bounce off top/bottom walls. First to 5 hits wins.
+
+# Player (left side)
+var disc_p1_y = 120;
+var disc_p1_has_disc = 1;
+
+# AI (right side)
+var disc_ai_y = 120;
+var disc_ai_has_disc = 1;
+
+# Player disc in flight
+var disc_p1_fx = 0;
+var disc_p1_fy = 0;
+var disc_p1_dx = 0;
+var disc_p1_dy = 0;
+var disc_p1_live = 0;
+
+# AI disc in flight
+var disc_ai_fx = 0;
+var disc_ai_fy = 0;
+var disc_ai_dx = 0;
+var disc_ai_dy = 0;
+var disc_ai_live = 0;
+
+# Score
+var disc_p1_score = 0;
+var disc_ai_score = 0;
+
+# AI cooldown
+var disc_ai_cd = 0;
+
+# Arena bounds
+var _da_l = 10;
+var _da_t = 10;
+var _da_w = 300;
+var _da_h = 220;
+
+fn disc_init() {
+    disc_p1_y = 120;
+    disc_ai_y = 120;
+    disc_p1_has_disc = 1;
+    disc_ai_has_disc = 1;
+    disc_p1_live = 0;
+    disc_ai_live = 0;
+    disc_p1_score = 0;
+    disc_ai_score = 0;
+    disc_ai_cd = 60;
+    return 0;
+}
+
+fn _disc_reset_round() {
+    disc_p1_has_disc = 1;
+    disc_ai_has_disc = 1;
+    disc_p1_live = 0;
+    disc_ai_live = 0;
+    disc_ai_cd = 40;
+    return 0;
+}
+
+fn disc_throw_player(aim_dy) {
+    if (disc_p1_has_disc == 0) { return 0; }
+    disc_p1_has_disc = 0;
+    disc_p1_live = 1;
+    disc_p1_fx = _da_l + 22;
+    disc_p1_fy = disc_p1_y;
+    disc_p1_dx = 3;
+    disc_p1_dy = aim_dy;
+    return 0;
+}
+
+fn _disc_ai_throw() {
+    if (disc_ai_has_disc == 0) { return 0; }
+    disc_ai_has_disc = 0;
+    disc_ai_live = 1;
+    disc_ai_fx = _da_l + _da_w - 22;
+    disc_ai_fy = disc_ai_y;
+    disc_ai_dx = 0 - 3;
+    var dy = disc_p1_y - disc_ai_y;
+    if (dy > 3) { disc_ai_dy = 2; }
+    elif (dy < (0 - 3)) { disc_ai_dy = 0 - 2; }
+    else { disc_ai_dy = 0; }
+    return 0;
+}
+
+fn disc_update() {
+    var top = _da_t;
+    var bot = _da_t + _da_h;
+    var left = _da_l;
+    var right = _da_l + _da_w;
+
+    # Player disc
+    if (disc_p1_live) {
+        disc_p1_fx = disc_p1_fx + disc_p1_dx;
+        disc_p1_fy = disc_p1_fy + disc_p1_dy;
+
+        # Bounce top/bottom
+        if (disc_p1_fy <= top) { disc_p1_fy = top + 1; disc_p1_dy = 0 - disc_p1_dy; }
+        if (disc_p1_fy >= bot) { disc_p1_fy = bot - 1; disc_p1_dy = 0 - disc_p1_dy; }
+
+        # Bounce right wall
+        if (disc_p1_fx >= right) { disc_p1_fx = right - 1; disc_p1_dx = 0 - disc_p1_dx; }
+
+        # Hit AI? (disc traveling right, near AI paddle)
+        if (disc_p1_dx > 0) {
+            if (disc_p1_fx >= right - 22) {
+                if (disc_p1_fy >= disc_ai_y - 16) {
+                    if (disc_p1_fy <= disc_ai_y + 16) {
+                        disc_p1_score = disc_p1_score + 1;
+                        _disc_reset_round();
+                        return 0;
+                    }
+                }
+            }
+        }
+
+        # Return to player side -> catch
+        if (disc_p1_fx <= left + 22) {
+            if (disc_p1_dx < 0) {
+                if (disc_p1_fy >= disc_p1_y - 16) {
+                    if (disc_p1_fy <= disc_p1_y + 16) {
+                        disc_p1_has_disc = 1;
+                        disc_p1_live = 0;
+                    }
+                }
+            }
+            if (disc_p1_fx <= left) {
+                disc_p1_live = 0;
+                disc_p1_has_disc = 1;
+            }
+        }
+    }
+
+    # AI disc
+    if (disc_ai_live) {
+        disc_ai_fx = disc_ai_fx + disc_ai_dx;
+        disc_ai_fy = disc_ai_fy + disc_ai_dy;
+
+        if (disc_ai_fy <= top) { disc_ai_fy = top + 1; disc_ai_dy = 0 - disc_ai_dy; }
+        if (disc_ai_fy >= bot) { disc_ai_fy = bot - 1; disc_ai_dy = 0 - disc_ai_dy; }
+
+        # Bounce left wall
+        if (disc_ai_fx <= left) { disc_ai_fx = left + 1; disc_ai_dx = 0 - disc_ai_dx; }
+
+        # Hit player? (disc traveling left, near player paddle)
+        if (disc_ai_dx < 0) {
+            if (disc_ai_fx <= left + 22) {
+                if (disc_ai_fy >= disc_p1_y - 16) {
+                    if (disc_ai_fy <= disc_p1_y + 16) {
+                        disc_ai_score = disc_ai_score + 1;
+                        _disc_reset_round();
+                        return 0;
+                    }
+                }
+            }
+        }
+
+        # Return to AI side -> catch
+        if (disc_ai_fx >= right - 22) {
+            if (disc_ai_dx > 0) {
+                if (disc_ai_fy >= disc_ai_y - 16) {
+                    if (disc_ai_fy <= disc_ai_y + 16) {
+                        disc_ai_has_disc = 1;
+                        disc_ai_live = 0;
+                    }
+                }
+            }
+            if (disc_ai_fx >= right) {
+                disc_ai_live = 0;
+                disc_ai_has_disc = 1;
+            }
+        }
+    }
+
+    # AI behavior
+    if (disc_p1_live) {
+        if (disc_p1_dx > 0) {
+            # Dodge incoming player disc
+            if (disc_ai_y < disc_p1_fy - 3) { disc_ai_y = disc_ai_y + 2; }
+            if (disc_ai_y > disc_p1_fy + 3) { disc_ai_y = disc_ai_y - 2; }
+        }
+    } elif (disc_ai_live) {
+        # Track own disc for catch
+        if (disc_ai_dx > 0) {
+            if (disc_ai_y < disc_ai_fy - 3) { disc_ai_y = disc_ai_y + 1; }
+            if (disc_ai_y > disc_ai_fy + 3) { disc_ai_y = disc_ai_y - 1; }
+        }
+    } else {
+        # Drift toward center
+        if (disc_ai_y < 115) { disc_ai_y = disc_ai_y + 1; }
+        if (disc_ai_y > 125) { disc_ai_y = disc_ai_y - 1; }
+    }
+
+    # AI throws
+    if (disc_ai_cd > 0) { disc_ai_cd = disc_ai_cd - 1; }
+    if (disc_ai_has_disc == 1) {
+        if (disc_ai_cd <= 0) { _disc_ai_throw(); }
+    }
+
+    # Clamp positions
+    if (disc_p1_y < top + 16) { disc_p1_y = top + 16; }
+    if (disc_p1_y > bot - 16) { disc_p1_y = bot - 16; }
+    if (disc_ai_y < top + 16) { disc_ai_y = top + 16; }
+    if (disc_ai_y > bot - 16) { disc_ai_y = bot - 16; }
+
+    return 0;
+}
+
+fn disc_render(fb) {
+    draw_clear(fb);
+
+    var left = _da_l;
+    var top = _da_t;
+
+    # Arena border
+    draw_rect(fb, left, top, _da_w, _da_h, COLOR_BLUE);
+
+    # Center line (dashed)
+    var cy = top;
+    while (cy < top + _da_h) {
+        draw_vline(fb, left + _da_w / 2, cy, cy + 4, COLOR_DIM_BLUE);
+        cy = cy + 10;
+    }
+
+    # Player paddle (left, cyan)
+    draw_filled_rect(fb, left + 8, disc_p1_y - 15, 4, 30, COLOR_CYAN);
+    if (disc_p1_has_disc) {
+        draw_filled_rect(fb, left + 14, disc_p1_y - 2, 5, 5, COLOR_WHITE);
+    }
+
+    # AI paddle (right, orange)
+    var rp = left + _da_w - 12;
+    draw_filled_rect(fb, rp, disc_ai_y - 15, 4, 30, COLOR_ORANGE);
+    if (disc_ai_has_disc) {
+        draw_filled_rect(fb, rp - 7, disc_ai_y - 2, 5, 5, COLOR_WHITE);
+    }
+
+    # Player disc (cyan diamond)
+    if (disc_p1_live) {
+        var dx = disc_p1_fx;
+        var dy = disc_p1_fy;
+        draw_line(fb, dx, dy - 3, dx + 3, dy, COLOR_CYAN);
+        draw_line(fb, dx + 3, dy, dx, dy + 3, COLOR_CYAN);
+        draw_line(fb, dx, dy + 3, dx - 3, dy, COLOR_CYAN);
+        draw_line(fb, dx - 3, dy, dx, dy - 3, COLOR_CYAN);
+    }
+
+    # AI disc (orange diamond)
+    if (disc_ai_live) {
+        var dx = disc_ai_fx;
+        var dy = disc_ai_fy;
+        draw_line(fb, dx, dy - 3, dx + 3, dy, COLOR_ORANGE);
+        draw_line(fb, dx + 3, dy, dx, dy + 3, COLOR_ORANGE);
+        draw_line(fb, dx, dy + 3, dx - 3, dy, COLOR_ORANGE);
+        draw_line(fb, dx - 3, dy, dx, dy - 3, COLOR_ORANGE);
+    }
+
+    return 0;
+}
+
+fn disc_game_over() {
+    if (disc_p1_score >= 5) { return 1; }
+    if (disc_ai_score >= 5) { return 1; }
+    return 0;
+}
+
+fn disc_winner() {
+    if (disc_p1_score >= 5) { return 1; }
+    if (disc_ai_score >= 5) { return 2; }
+    return 0;
+}

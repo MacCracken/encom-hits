@@ -33,11 +33,13 @@ enum Key {
     KEY_2 = 13;
     KEY_3 = 14;
     KEY_4 = 15;
-    KEY_COUNT = 16;
+    KEY_5 = 16;
+    KEY_6 = 17;
+    KEY_COUNT = 18;
 }
 
-# Key state (1 = pressed this frame, 0 = not). 16 i64 slots = 128 bytes.
-var _key_state[16];
+# Key state (1 = pressed this frame, 0 = not). 18 i64 slots.
+var _key_state[18];
 
 # Original termios for restore
 var _termios_orig[8];
@@ -139,6 +141,8 @@ fn input_poll() {
         if (ch == 50) { _key_set(KEY_2, 1); }
         if (ch == 51) { _key_set(KEY_3, 1); }
         if (ch == 52) { _key_set(KEY_4, 1); }
+        if (ch == 53) { _key_set(KEY_5, 1); }
+        if (ch == 54) { _key_set(KEY_6, 1); }
 
         n = syscall(SYS_READ, 0, &buf, 1);
     }

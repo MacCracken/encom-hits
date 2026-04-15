@@ -16,6 +16,8 @@ enum Game {
     GAME_GRIDBUGS = 2;
     GAME_TANKS = 3;
     GAME_MCPCONE = 4;
+    GAME_INTERCEPTORS = 5;
+    GAME_DISCS = 6;
 }
 
 # Neon color palette (RGB packed as integer)
@@ -82,4 +84,12 @@ enum MCPCone {
     MCP_SEGMENTS = 16;
     MCP_CENTER_X = 160;
     MCP_CENTER_Y = 120;
+}
+
+# Interceptors
+enum Interceptors {
+    INT_PLAYER_Y = 220;
+    INT_MAX_PB = 4;
+    INT_MAX_EN = 8;
+    INT_MAX_EB = 6;
 }
