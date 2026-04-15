@@ -7,7 +7,7 @@ repository = "https://github.com/MacCracken/encom-hits"
 
 [deps]
 # stdlib modules auto-included by cyrius build (order matters — single-pass compiler)
-stdlib = ["string", "alloc", "fmt", "args"]
+stdlib = ["string", "alloc", "fmt"]
 
 [build]
 src = "src/main.cyr"

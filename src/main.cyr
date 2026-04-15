@@ -201,15 +201,112 @@ fn draw_number(fb, num, x, y, color, scale) {
     return 0;
 }
 
+# Splash screen — perspective grid + large vector ENCOM lettering
+fn splash_render(fb) {
+    draw_clear(fb);
+
+    # Perspective grid floor — vanishing point at (160, 105)
+    var vp_x = 160;
+    var vp_y = 105;
+
+    # Converging vertical lines from VP to bottom edge
+    var gx = 0;
+    while (gx <= SCREEN_W) {
+        draw_line(fb, vp_x, vp_y, gx, SCREEN_H - 1, COLOR_DIM_BLUE);
+        gx = gx + 20;
+    }
+
+    # Horizontal perspective lines (quadratic spacing = depth illusion)
+    var gi = 1;
+    while (gi <= 11) {
+        var gy = vp_y + gi * gi;
+        if (gy < SCREEN_H) {
+            # Lines narrow toward VP, widen toward bottom
+            var half = gi * 14;
+            if (half > vp_x) { half = vp_x; }
+            draw_hline(fb, vp_x - half, vp_x + half, gy, COLOR_DIM_BLUE);
+        }
+        gi = gi + 1;
+    }
+
+    # Horizon line
+    draw_hline(fb, 0, SCREEN_W - 1, vp_y, COLOR_BLUE);
+
+    # Large vector "ENCOM" — line-drawn letters, 36px tall, 28px wide
+    var lx = 70;
+    var ly = 18;
+    var lh = 36;
+    var lw = 28;
+    var lg = 10;
+
+    # E
+    draw_line(fb, lx, ly, lx, ly + lh, COLOR_CYAN);
+    draw_line(fb, lx, ly, lx + lw, ly, COLOR_CYAN);
+    draw_line(fb, lx, ly + lh / 2, lx + lw - 4, ly + lh / 2, COLOR_CYAN);
+    draw_line(fb, lx, ly + lh, lx + lw, ly + lh, COLOR_CYAN);
+    lx = lx + lw + lg;
+
+    # N
+    draw_line(fb, lx, ly + lh, lx, ly, COLOR_CYAN);
+    draw_line(fb, lx, ly, lx + lw, ly + lh, COLOR_CYAN);
+    draw_line(fb, lx + lw, ly, lx + lw, ly + lh, COLOR_CYAN);
+    lx = lx + lw + lg;
+
+    # C
+    draw_line(fb, lx + lw, ly, lx, ly, COLOR_CYAN);
+    draw_line(fb, lx, ly, lx, ly + lh, COLOR_CYAN);
+    draw_line(fb, lx, ly + lh, lx + lw, ly + lh, COLOR_CYAN);
+    lx = lx + lw + lg;
+
+    # O
+    draw_line(fb, lx, ly, lx + lw, ly, COLOR_CYAN);
+    draw_line(fb, lx + lw, ly, lx + lw, ly + lh, COLOR_CYAN);
+    draw_line(fb, lx + lw, ly + lh, lx, ly + lh, COLOR_CYAN);
+    draw_line(fb, lx, ly + lh, lx, ly, COLOR_CYAN);
+    lx = lx + lw + lg;
+
+    # M
+    draw_line(fb, lx, ly + lh, lx, ly, COLOR_CYAN);
+    draw_line(fb, lx, ly, lx + lw / 2, ly + lh / 2, COLOR_CYAN);
+    draw_line(fb, lx + lw / 2, ly + lh / 2, lx + lw, ly, COLOR_CYAN);
+    draw_line(fb, lx + lw, ly, lx + lw, ly + lh, COLOR_CYAN);
+
+    # "'S HITS" below the vector text
+    draw_text(fb, "'S HITS", 148, 62, COLOR_WHITE, 2);
+
+    # Accent lines framing the title
+    draw_hline(fb, 50, 270, 12, COLOR_BLUE);
+    draw_hline(fb, 50, 270, 82, COLOR_BLUE);
+
+    # Small diamonds at accent line ends
+    draw_pixel(fb, 48, 12, COLOR_CYAN);
+    draw_pixel(fb, 272, 12, COLOR_CYAN);
+    draw_pixel(fb, 48, 82, COLOR_CYAN);
+    draw_pixel(fb, 272, 82, COLOR_CYAN);
+
+    # "PRESS ANY KEY" at bottom
+    draw_text(fb, "PRESS ANY KEY", 96, 92, COLOR_DIM_BLUE, 1);
+
+    return 0;
+}
+
 # Menu rendering
 fn menu_render(fb) {
     draw_clear(fb);
 
+    # Corner brackets framing the title
+    draw_vline(fb, 60, 14, 26, COLOR_BLUE);
+    draw_hline(fb, 60, 74, 14, COLOR_BLUE);
+    draw_vline(fb, 260, 14, 26, COLOR_BLUE);
+    draw_hline(fb, 246, 260, 14, COLOR_BLUE);
+
     # Title: ENCOM'S HITS
     draw_text(fb, "ENCOM'S HITS", 76, 20, COLOR_CYAN, 3);
 
-    # Divider line
+    # Divider line with end marks
     draw_hline(fb, 40, 280, 50, COLOR_BLUE);
+    draw_vline(fb, 40, 48, 52, COLOR_BLUE);
+    draw_vline(fb, 280, 48, 52, COLOR_BLUE);
 
     # Game list
     var y = 70;
@@ -633,22 +730,26 @@ fn _screenshot_render(fb, path) {
 }
 
 fn _screenshot_mode(fb) {
+    # Splash
+    splash_render(fb);
+    _screenshot_render(fb, "/tmp/encom_splash.ppm");
+
     # Menu
     menu_render(fb);
-    _screenshot_render(fb, "screenshots/menu.ppm");
+    _screenshot_render(fb, "/tmp/encom_menu.ppm");
 
     # Title cards
     title_render(fb, GAME_LIGHTCYCLES);
-    _screenshot_render(fb, "screenshots/title_lightcycles.ppm");
+    _screenshot_render(fb, "/tmp/encom_title_lightcycles.ppm");
 
     title_render(fb, GAME_GRIDBUGS);
-    _screenshot_render(fb, "screenshots/title_gridbugs.ppm");
+    _screenshot_render(fb, "/tmp/encom_title_gridbugs.ppm");
 
     title_render(fb, GAME_TANKS);
-    _screenshot_render(fb, "screenshots/title_tanks.ppm");
+    _screenshot_render(fb, "/tmp/encom_title_tanks.ppm");
 
     title_render(fb, GAME_MCPCONE);
-    _screenshot_render(fb, "screenshots/title_mcpcone.ppm");
+    _screenshot_render(fb, "/tmp/encom_title_mcpcone.ppm");
 
     # Light Cycles — simulate a few ticks for visible trails
     lc_init();
@@ -659,17 +760,17 @@ fn _screenshot_mode(fb) {
         i = i + 1;
     }
     lc_render(fb);
-    _screenshot_render(fb, "screenshots/lightcycles.ppm");
+    _screenshot_render(fb, "/tmp/encom_lightcycles.ppm");
 
     # Grid Bugs — init and render starting state
     gb_init(1);
     gb_render(fb);
-    _screenshot_render(fb, "screenshots/gridbugs.ppm");
+    _screenshot_render(fb, "/tmp/encom_gridbugs.ppm");
 
     # Battle Tanks — init maze and render
     tk_init(54321);
     tk_render(fb);
-    _screenshot_render(fb, "screenshots/tanks.ppm");
+    _screenshot_render(fb, "/tmp/encom_tanks.ppm");
 
     # MCP Cone — init and simulate a few ticks for rotation
     mcp_init();
@@ -679,23 +780,52 @@ fn _screenshot_mode(fb) {
         i = i + 1;
     }
     mcp_render(fb);
-    _screenshot_render(fb, "screenshots/mcpcone.ppm");
+    _screenshot_render(fb, "/tmp/encom_mcpcone.ppm");
 
+    return 0;
+}
+
+var _cmdline[512];
+var _cmdline_len = 0;
+
+fn _check_arg(arg) {
+    # Scan /proc/self/cmdline for arg (null-separated entries)
+    var i = 0;
+    # Skip first entry (program name)
+    while (i < _cmdline_len) {
+        if (load8(&_cmdline + i) == 0) { i = i + 1; break; }
+        i = i + 1;
+    }
+    # Check remaining entries
+    while (i < _cmdline_len) {
+        if (load8(&_cmdline + i) != 0) {
+            if (streq(&_cmdline + i, arg) == 1) { return 1; }
+            # Skip to next null
+            while (i < _cmdline_len) {
+                if (load8(&_cmdline + i) == 0) { break; }
+                i = i + 1;
+            }
+        }
+        i = i + 1;
+    }
     return 0;
 }
 
 fn main() {
     alloc_init();
-    args_init();
+
+    # Read command line (global buffer so pointer stays valid)
+    var cmd_fd = syscall(SYS_OPEN, "/proc/self/cmdline", 0, 0);
+    if (cmd_fd >= 0) {
+        _cmdline_len = syscall(SYS_READ, cmd_fd, &_cmdline, 4096);
+        syscall(SYS_CLOSE, cmd_fd);
+    }
 
     var fb = engine_init();
     scores_load();
 
     # --ppm mode: render screenshots and exit (no input needed)
-    var ppm_mode = 0;
-    if (argc() > 1) {
-        if (streq(argv(1), "--ppm") == 1) { ppm_mode = 1; }
-    }
+    var ppm_mode = _check_arg("--ppm");
 
     if (ppm_mode == 1) {
         _screenshot_mode(fb);
@@ -704,6 +834,30 @@ fn main() {
     }
 
     input_init();
+
+    # Splash screen — 4 seconds or any key to skip
+    var splash_timer = 240;
+    while (splash_timer > 0) {
+        engine_tick_begin();
+        input_poll();
+        splash_render(fb);
+        glow_apply(fb, SCREEN_W, SCREEN_H);
+        engine_present();
+        splash_timer = splash_timer - 1;
+        if (input_key(KEY_ENTER) == 1) { splash_timer = 0; }
+        if (input_key(KEY_SPACE) == 1) { splash_timer = 0; }
+        if (input_key(KEY_ESC) == 1) { splash_timer = 0; }
+        if (input_key(KEY_1) == 1) { splash_timer = 0; }
+        if (input_key(KEY_2) == 1) { splash_timer = 0; }
+        if (input_key(KEY_3) == 1) { splash_timer = 0; }
+        if (input_key(KEY_4) == 1) { splash_timer = 0; }
+        if (input_quit() == 1) {
+            input_shutdown();
+            engine_shutdown();
+            syscall(60, 0);
+        }
+        engine_tick_wait();
+    }
 
     current_game = GAME_MENU;
     game_running = 1;
