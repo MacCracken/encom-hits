@@ -1,0 +1,97 @@
+# encom-hits -- glow.cyr
+# Neon glow effect: bloom on bright lines.
+# Additive blend on adjacent pixels for the 1982 TRON aesthetic.
+#
+# Algorithm:
+#   For each pixel with brightness above threshold,
+#   add a fraction of its color to neighboring pixels.
+#   This simulates light bleed from neon tubes.
+
+enum GlowConst {
+    GLOW_THRESHOLD = 128;
+    GLOW_STRENGTH = 4;
+}
+
+fn glow_apply(fb, w, h) {
+    # Single-pass additive glow: for each bright pixel,
+    # add color to the 4 adjacent pixels (up/down/left/right).
+    # We read from fb and write glow additively.
+    # To avoid feedback, process in scan order (glow spreads slightly right/down).
+
+    var y = 1;
+    while (y < h - 1) {
+        var x = 1;
+        while (x < w - 1) {
+            var offset = (y * w + x) * 4;
+            var b = load8(fb + offset);
+            var g = load8(fb + offset + 1);
+            var r = load8(fb + offset + 2);
+
+            # Check brightness (simple max of channels)
+            var bright = r;
+            if (g > bright) { bright = g; }
+            if (b > bright) { bright = b; }
+
+            if (bright > GLOW_THRESHOLD) {
+                # Glow amount: fraction of the bright pixel
+                var gr = r / GLOW_STRENGTH;
+                var gg = g / GLOW_STRENGTH;
+                var gb = b / GLOW_STRENGTH;
+
+                # Add glow to 4 neighbors
+                # Up
+                var off_up = ((y - 1) * w + x) * 4;
+                var nb = load8(fb + off_up);
+                var ng = load8(fb + off_up + 1);
+                var nr = load8(fb + off_up + 2);
+                nr = nr + gr; if (nr > 255) { nr = 255; }
+                ng = ng + gg; if (ng > 255) { ng = 255; }
+                nb = nb + gb; if (nb > 255) { nb = 255; }
+                store8(fb + off_up, nb);
+                store8(fb + off_up + 1, ng);
+                store8(fb + off_up + 2, nr);
+
+                # Down
+                var off_dn = ((y + 1) * w + x) * 4;
+                nb = load8(fb + off_dn);
+                ng = load8(fb + off_dn + 1);
+                nr = load8(fb + off_dn + 2);
+                nr = nr + gr; if (nr > 255) { nr = 255; }
+                ng = ng + gg; if (ng > 255) { ng = 255; }
+                nb = nb + gb; if (nb > 255) { nb = 255; }
+                store8(fb + off_dn, nb);
+                store8(fb + off_dn + 1, ng);
+                store8(fb + off_dn + 2, nr);
+
+                # Left
+                var off_lt = (y * w + x - 1) * 4;
+                nb = load8(fb + off_lt);
+                ng = load8(fb + off_lt + 1);
+                nr = load8(fb + off_lt + 2);
+                nr = nr + gr; if (nr > 255) { nr = 255; }
+                ng = ng + gg; if (ng > 255) { ng = 255; }
+                nb = nb + gb; if (nb > 255) { nb = 255; }
+                store8(fb + off_lt, nb);
+                store8(fb + off_lt + 1, ng);
+                store8(fb + off_lt + 2, nr);
+
+                # Right
+                var off_rt = (y * w + x + 1) * 4;
+                nb = load8(fb + off_rt);
+                ng = load8(fb + off_rt + 1);
+                nr = load8(fb + off_rt + 2);
+                nr = nr + gr; if (nr > 255) { nr = 255; }
+                ng = ng + gg; if (ng > 255) { ng = 255; }
+                nb = nb + gb; if (nb > 255) { nb = 255; }
+                store8(fb + off_rt, nb);
+                store8(fb + off_rt + 1, ng);
+                store8(fb + off_rt + 2, nr);
+            }
+
+            x = x + 1;
+        }
+        y = y + 1;
+    }
+
+    return 0;
+}

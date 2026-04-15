@@ -1,0 +1,162 @@
+# encom-hits -- input
+# Terminal raw mode keyboard input for two players.
+# Non-blocking read from stdin. Escape sequences for arrow keys.
+#
+# Player 1: WASD
+# Player 2: Arrow keys
+# Shared: Space (action), Q (quit), Enter (select), Escape (back/pause)
+
+# termios ioctl constants: TCGETS=0x5401, TCSETS=0x5402
+enum TermConst {
+    TCGETS = 21505;
+    TCSETS = 21506;
+    ICANON = 2;
+    ECHO_FLAG = 8;
+    ISIG = 1;
+}
+
+# Key indices for state array
+enum Key {
+    KEY_W = 0;
+    KEY_A = 1;
+    KEY_S = 2;
+    KEY_D = 3;
+    KEY_UP = 4;
+    KEY_DOWN = 5;
+    KEY_LEFT = 6;
+    KEY_RIGHT = 7;
+    KEY_SPACE = 8;
+    KEY_ENTER = 9;
+    KEY_ESC = 10;
+    KEY_Q = 11;
+    KEY_1 = 12;
+    KEY_2 = 13;
+    KEY_3 = 14;
+    KEY_4 = 15;
+    KEY_COUNT = 16;
+}
+
+# Key state (1 = pressed this frame, 0 = not). 16 i64 slots = 128 bytes.
+var _key_state[16];
+
+# Original termios for restore
+var _termios_orig[8];
+var _termios_raw[8];
+var _input_ready = 0;
+
+fn _key_set(k, v) {
+    store64(&_key_state + k * 8, v);
+    return 0;
+}
+
+fn _key_get(k) {
+    return load64(&_key_state + k * 8);
+}
+
+fn input_init() {
+    # Save original terminal settings
+    syscall(SYS_IOCTL, 0, TCGETS, &_termios_orig);
+
+    # Copy to raw mode buffer (64 bytes)
+    memcpy(&_termios_raw, &_termios_orig, 64);
+
+    # Clear c_lflag: disable canonical mode, echo, signals
+    var lflag = load32(&_termios_raw + 12);
+    lflag = lflag & (0 - 1 - 11);
+    store32(&_termios_raw + 12, lflag);
+
+    # Clear c_iflag: disable IXON, ICRNL, BRKINT, INPCK, ISTRIP
+    var iflag = load32(&_termios_raw);
+    iflag = iflag & (0 - 1 - 1330);
+    store32(&_termios_raw, iflag);
+
+    # Set VMIN=0, VTIME=0 for non-blocking reads
+    store8(&_termios_raw + 23, 0);
+    store8(&_termios_raw + 22, 0);
+
+    # Apply raw mode
+    syscall(SYS_IOCTL, 0, TCSETS, &_termios_raw);
+
+    # Clear key state
+    memset(&_key_state, 0, KEY_COUNT * 8);
+
+    _input_ready = 1;
+    return 0;
+}
+
+fn input_poll() {
+    # Reset all keys to 0 each frame
+    memset(&_key_state, 0, KEY_COUNT * 8);
+
+    # Read all available bytes from stdin (non-blocking)
+    var buf[4];
+    var n = syscall(SYS_READ, 0, &buf, 1);
+
+    while (n > 0) {
+        var ch = load8(&buf);
+
+        # Escape sequence: ESC [ A/B/C/D for arrow keys
+        if (ch == 27) {
+            var n2 = syscall(SYS_READ, 0, &buf, 1);
+            if (n2 > 0) {
+                var ch2 = load8(&buf);
+                if (ch2 == 91) {
+                    var n3 = syscall(SYS_READ, 0, &buf, 1);
+                    if (n3 > 0) {
+                        var ch3 = load8(&buf);
+                        if (ch3 == 65) { _key_set(KEY_UP, 1); }
+                        if (ch3 == 66) { _key_set(KEY_DOWN, 1); }
+                        if (ch3 == 67) { _key_set(KEY_RIGHT, 1); }
+                        if (ch3 == 68) { _key_set(KEY_LEFT, 1); }
+                    }
+                }
+            } else {
+                _key_set(KEY_ESC, 1);
+            }
+        }
+
+        # WASD (lowercase + uppercase)
+        if (ch == 119) { _key_set(KEY_W, 1); }
+        if (ch == 87)  { _key_set(KEY_W, 1); }
+        if (ch == 97)  { _key_set(KEY_A, 1); }
+        if (ch == 65)  { _key_set(KEY_A, 1); }
+        if (ch == 115) { _key_set(KEY_S, 1); }
+        if (ch == 83)  { _key_set(KEY_S, 1); }
+        if (ch == 100) { _key_set(KEY_D, 1); }
+        if (ch == 68)  { _key_set(KEY_D, 1); }
+
+        # Action keys
+        if (ch == 32)  { _key_set(KEY_SPACE, 1); }
+        if (ch == 10)  { _key_set(KEY_ENTER, 1); }
+        if (ch == 113) { _key_set(KEY_Q, 1); }
+        if (ch == 81)  { _key_set(KEY_Q, 1); }
+
+        # Number keys for game select
+        if (ch == 49) { _key_set(KEY_1, 1); }
+        if (ch == 50) { _key_set(KEY_2, 1); }
+        if (ch == 51) { _key_set(KEY_3, 1); }
+        if (ch == 52) { _key_set(KEY_4, 1); }
+
+        n = syscall(SYS_READ, 0, &buf, 1);
+    }
+
+    return 0;
+}
+
+fn input_key(key) {
+    if (key < 0) { return 0; }
+    if (key >= KEY_COUNT) { return 0; }
+    return _key_get(key);
+}
+
+fn input_quit() {
+    return _key_get(KEY_Q);
+}
+
+fn input_shutdown() {
+    if (_input_ready == 1) {
+        syscall(SYS_IOCTL, 0, TCSETS, &_termios_orig);
+        _input_ready = 0;
+    }
+    return 0;
+}

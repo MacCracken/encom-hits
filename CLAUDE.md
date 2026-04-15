@@ -39,17 +39,16 @@ A collection of four arcade games inspired by the 1982 TRON cabinet, sharing a c
 
 ```
 src/
-  main.cyr          — Entry point, game select menu, main loop
-  engine.cyr        — Shared engine: framebuffer, line drawing, input, timing
+  main.cyr          — Entry point, game select menu, bitmap text, main loop
+  engine.cyr        — Shared engine: framebuffer, display output, frame timing
   glow.cyr          — Neon glow effect: bloom on bright lines (the aesthetic)
-  draw.cyr          — Primitives: line, circle, arc, filled rect, text
-  input.cyr         — Keyboard mapping, player input state
-  menu.cyr          — Game select screen, title cards, high scores
+  draw.cyr          — Primitives: line, hline, vline, rect, filled rect, pixel
+  input.cyr         — Keyboard mapping, player input state, terminal raw mode
   lightcycles.cyr   — Light Cycles game
   mcpcone.cyr       — MCP Cone game
   tanks.cyr         — Battle Tanks game
   gridbugs.cyr      — Grid Bugs game
-  ai.cyr            — Shared AI: pathfinding (A*), basic chase/evade
+  ai.cyr            — Shared AI: A* (open grid + maze-aware), chase, LC lookahead
   grid.cyr          — Grid/maze data structures (shared by tanks + gridbugs)
   types.cyr         — Shared types, colors, constants
 ```

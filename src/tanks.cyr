@@ -1,0 +1,274 @@
+# encom-hits -- Battle Tanks
+# Top-down tank combat in a procedural maze.
+# Projectile physics with wall ricochet. AI opponent.
+#
+# Grid: 16x12 cells, 20x20 pixels each.
+# Player tank vs AI tank. Shots ricochet off walls (max 2 bounces).
+
+# Tank state
+var tk_p1_x = 0;
+var tk_p1_y = 0;
+var tk_p1_dir = 0;
+var tk_p1_alive = 0;
+
+var tk_ai_x = 0;
+var tk_ai_y = 0;
+var tk_ai_dir = 0;
+var tk_ai_alive = 0;
+
+# Projectile state (one per player)
+var tk_p1_shot_x = 0;
+var tk_p1_shot_y = 0;
+var tk_p1_shot_dx = 0;
+var tk_p1_shot_dy = 0;
+var tk_p1_shot_alive = 0;
+var tk_p1_shot_bounces = 0;
+
+var tk_ai_shot_x = 0;
+var tk_ai_shot_y = 0;
+var tk_ai_shot_dx = 0;
+var tk_ai_shot_dy = 0;
+var tk_ai_shot_alive = 0;
+var tk_ai_shot_bounces = 0;
+
+# AI shoot cooldown
+var tk_ai_cooldown = 0;
+
+fn tk_init(seed) {
+    # Generate maze
+    maze_generate(TK_GRID_W, TK_GRID_H, seed);
+
+    # Player starts at top-left area
+    tk_p1_x = 1;
+    tk_p1_y = 1;
+    tk_p1_dir = DIR_RIGHT;
+    tk_p1_alive = 1;
+
+    # AI starts at bottom-right area
+    tk_ai_x = TK_GRID_W - 2;
+    tk_ai_y = TK_GRID_H - 2;
+    tk_ai_dir = DIR_LEFT;
+    tk_ai_alive = 1;
+
+    # No active projectiles
+    tk_p1_shot_alive = 0;
+    tk_ai_shot_alive = 0;
+    tk_ai_cooldown = 0;
+
+    return 0;
+}
+
+fn tk_try_move(x, y, dir) {
+    # Check if movement in direction is allowed (no wall)
+    var wall_dir = 0;
+    if (dir == DIR_UP) { wall_dir = 0; }
+    if (dir == DIR_DOWN) { wall_dir = 1; }
+    if (dir == DIR_RIGHT) { wall_dir = 2; }
+    if (dir == DIR_LEFT) { wall_dir = 3; }
+
+    if (maze_has_wall(x, y, wall_dir) == 0) {
+        return 1;
+    }
+    return 0;
+}
+
+fn tk_fire_shot(x, y, dir, is_player) {
+    var dx = 0;
+    var dy = 0;
+    if (dir == DIR_UP) { dy = 0 - 1; }
+    if (dir == DIR_DOWN) { dy = 1; }
+    if (dir == DIR_LEFT) { dx = 0 - 1; }
+    if (dir == DIR_RIGHT) { dx = 1; }
+
+    if (is_player) {
+        if (tk_p1_shot_alive == 0) {
+            tk_p1_shot_x = x;
+            tk_p1_shot_y = y;
+            tk_p1_shot_dx = dx;
+            tk_p1_shot_dy = dy;
+            tk_p1_shot_alive = 1;
+            tk_p1_shot_bounces = 0;
+        }
+    } else {
+        if (tk_ai_shot_alive == 0) {
+            tk_ai_shot_x = x;
+            tk_ai_shot_y = y;
+            tk_ai_shot_dx = dx;
+            tk_ai_shot_dy = dy;
+            tk_ai_shot_alive = 1;
+            tk_ai_shot_bounces = 0;
+        }
+    }
+    return 0;
+}
+
+fn _tk_update_shot_player() {
+    if (tk_p1_shot_alive == 0) { return 0; }
+
+    var nx = tk_p1_shot_x + tk_p1_shot_dx;
+    var ny = tk_p1_shot_y + tk_p1_shot_dy;
+
+    # Check wall collision
+    var wall_dir = 0;
+    if (tk_p1_shot_dx > 0) { wall_dir = 2; }
+    if (tk_p1_shot_dx < 0) { wall_dir = 3; }
+    if (tk_p1_shot_dy < 0) { wall_dir = 0; }
+    if (tk_p1_shot_dy > 0) { wall_dir = 1; }
+
+    if (maze_has_wall(tk_p1_shot_x, tk_p1_shot_y, wall_dir)) {
+        # Ricochet: reflect
+        if (tk_p1_shot_dx != 0) { tk_p1_shot_dx = 0 - tk_p1_shot_dx; }
+        if (tk_p1_shot_dy != 0) { tk_p1_shot_dy = 0 - tk_p1_shot_dy; }
+        tk_p1_shot_bounces = tk_p1_shot_bounces + 1;
+        if (tk_p1_shot_bounces > TK_MAX_BOUNCES) {
+            tk_p1_shot_alive = 0;
+        }
+        return 0;
+    }
+
+    # Bounds check
+    if (nx < 0) { tk_p1_shot_alive = 0; return 0; }
+    if (nx >= TK_GRID_W) { tk_p1_shot_alive = 0; return 0; }
+    if (ny < 0) { tk_p1_shot_alive = 0; return 0; }
+    if (ny >= TK_GRID_H) { tk_p1_shot_alive = 0; return 0; }
+
+    tk_p1_shot_x = nx;
+    tk_p1_shot_y = ny;
+
+    # Hit AI tank?
+    if (tk_p1_shot_x == tk_ai_x) {
+        if (tk_p1_shot_y == tk_ai_y) {
+            tk_ai_alive = 0;
+            tk_p1_shot_alive = 0;
+        }
+    }
+
+    return 0;
+}
+
+fn _tk_update_shot_ai() {
+    if (tk_ai_shot_alive == 0) { return 0; }
+
+    var nx = tk_ai_shot_x + tk_ai_shot_dx;
+    var ny = tk_ai_shot_y + tk_ai_shot_dy;
+
+    var wall_dir = 0;
+    if (tk_ai_shot_dx > 0) { wall_dir = 2; }
+    if (tk_ai_shot_dx < 0) { wall_dir = 3; }
+    if (tk_ai_shot_dy < 0) { wall_dir = 0; }
+    if (tk_ai_shot_dy > 0) { wall_dir = 1; }
+
+    if (maze_has_wall(tk_ai_shot_x, tk_ai_shot_y, wall_dir)) {
+        if (tk_ai_shot_dx != 0) { tk_ai_shot_dx = 0 - tk_ai_shot_dx; }
+        if (tk_ai_shot_dy != 0) { tk_ai_shot_dy = 0 - tk_ai_shot_dy; }
+        tk_ai_shot_bounces = tk_ai_shot_bounces + 1;
+        if (tk_ai_shot_bounces > TK_MAX_BOUNCES) {
+            tk_ai_shot_alive = 0;
+        }
+        return 0;
+    }
+
+    if (nx < 0) { tk_ai_shot_alive = 0; return 0; }
+    if (nx >= TK_GRID_W) { tk_ai_shot_alive = 0; return 0; }
+    if (ny < 0) { tk_ai_shot_alive = 0; return 0; }
+    if (ny >= TK_GRID_H) { tk_ai_shot_alive = 0; return 0; }
+
+    tk_ai_shot_x = nx;
+    tk_ai_shot_y = ny;
+
+    if (tk_ai_shot_x == tk_p1_x) {
+        if (tk_ai_shot_y == tk_p1_y) {
+            tk_p1_alive = 0;
+            tk_ai_shot_alive = 0;
+        }
+    }
+
+    return 0;
+}
+
+fn tk_update() {
+    # AI movement: A* pathfinding through maze
+    if (tk_ai_alive) {
+        var dir = ai_find_direction_maze(tk_ai_x, tk_ai_y, tk_p1_x, tk_p1_y, TK_GRID_W, TK_GRID_H);
+        if (dir != DIR_NONE) {
+            if (tk_try_move(tk_ai_x, tk_ai_y, dir)) {
+                tk_ai_dir = dir;
+                if (dir == DIR_UP) { tk_ai_y = tk_ai_y - 1; }
+                if (dir == DIR_DOWN) { tk_ai_y = tk_ai_y + 1; }
+                if (dir == DIR_LEFT) { tk_ai_x = tk_ai_x - 1; }
+                if (dir == DIR_RIGHT) { tk_ai_x = tk_ai_x + 1; }
+            }
+        }
+
+        # AI fires periodically
+        tk_ai_cooldown = tk_ai_cooldown + 1;
+        if (tk_ai_cooldown >= 8) {
+            tk_ai_cooldown = 0;
+            tk_fire_shot(tk_ai_x, tk_ai_y, tk_ai_dir, 0);
+        }
+    }
+
+    # Update projectiles
+    _tk_update_shot_player();
+    _tk_update_shot_ai();
+
+    return 0;
+}
+
+fn tk_render(fb) {
+    draw_clear(fb);
+
+    # Draw maze
+    maze_render(fb, TK_CELL_W, TK_CELL_H, COLOR_BLUE);
+
+    # Player tank (cyan filled rect with direction indicator)
+    if (tk_p1_alive) {
+        var px = tk_p1_x * TK_CELL_W + TK_CELL_W / 2;
+        var py = tk_p1_y * TK_CELL_H + TK_CELL_H / 2;
+        draw_filled_rect(fb, px - 3, py - 3, 7, 7, COLOR_CYAN);
+        # Direction barrel
+        if (tk_p1_dir == DIR_UP)    { draw_vline(fb, px, py - 6, py - 3, COLOR_WHITE); }
+        if (tk_p1_dir == DIR_DOWN)  { draw_vline(fb, px, py + 3, py + 6, COLOR_WHITE); }
+        if (tk_p1_dir == DIR_LEFT)  { draw_hline(fb, px - 6, px - 3, py, COLOR_WHITE); }
+        if (tk_p1_dir == DIR_RIGHT) { draw_hline(fb, px + 3, px + 6, py, COLOR_WHITE); }
+    }
+
+    # AI tank (orange)
+    if (tk_ai_alive) {
+        var ax = tk_ai_x * TK_CELL_W + TK_CELL_W / 2;
+        var ay = tk_ai_y * TK_CELL_H + TK_CELL_H / 2;
+        draw_filled_rect(fb, ax - 3, ay - 3, 7, 7, COLOR_ORANGE);
+        if (tk_ai_dir == DIR_UP)    { draw_vline(fb, ax, ay - 6, ay - 3, COLOR_WHITE); }
+        if (tk_ai_dir == DIR_DOWN)  { draw_vline(fb, ax, ay + 3, ay + 6, COLOR_WHITE); }
+        if (tk_ai_dir == DIR_LEFT)  { draw_hline(fb, ax - 6, ax - 3, ay, COLOR_WHITE); }
+        if (tk_ai_dir == DIR_RIGHT) { draw_hline(fb, ax + 3, ax + 6, ay, COLOR_WHITE); }
+    }
+
+    # Player projectile (white)
+    if (tk_p1_shot_alive) {
+        var sx = tk_p1_shot_x * TK_CELL_W + TK_CELL_W / 2;
+        var sy = tk_p1_shot_y * TK_CELL_H + TK_CELL_H / 2;
+        draw_filled_rect(fb, sx - 1, sy - 1, 3, 3, COLOR_WHITE);
+    }
+
+    # AI projectile (white)
+    if (tk_ai_shot_alive) {
+        var sx = tk_ai_shot_x * TK_CELL_W + TK_CELL_W / 2;
+        var sy = tk_ai_shot_y * TK_CELL_H + TK_CELL_H / 2;
+        draw_filled_rect(fb, sx - 1, sy - 1, 3, 3, COLOR_WHITE);
+    }
+
+    return 0;
+}
+
+fn tk_game_over() {
+    if (tk_p1_alive == 0) { return 1; }
+    if (tk_ai_alive == 0) { return 1; }
+    return 0;
+}
+
+fn tk_winner() {
+    if (tk_p1_alive == 1) { if (tk_ai_alive == 0) { return 1; } }
+    if (tk_ai_alive == 1) { if (tk_p1_alive == 0) { return 2; } }
+    return 0;
+}

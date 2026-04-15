@@ -1,23 +1,489 @@
-// encom-hits — ENCOM's Hits
-// Retro arcade game collection in Cyrius.
-// Four games. Neon on black. The art is math.
-//
-// Light Cycles | Grid Bugs | Battle Tanks | MCP Cone
+# encom-hits -- ENCOM's Hits
+# Retro arcade game collection in Cyrius.
+# Four games. Neon on black. The art is math.
+#
+# Light Cycles | Grid Bugs | Battle Tanks | MCP Cone
+#
+# Build: cyrius build src/main.cyr build/encom-hits
+# Run:   ./build/encom-hits
+
+# stdlib deps resolved via cyrius.toml -- string, alloc, fmt auto-prepended
+
+include "src/types.cyr"
+include "src/engine.cyr"
+include "src/input.cyr"
+include "src/draw.cyr"
+include "src/lightcycles.cyr"
+include "src/grid.cyr"
+include "src/gridbugs.cyr"
+include "src/ai.cyr"
+include "src/tanks.cyr"
+include "src/mcpcone.cyr"
+include "src/glow.cyr"
+
+# Game state
+var current_game = 0;   # GAME_MENU
+var game_running = 0;
+var menu_selection = 1;  # 1-4 for game select
+
+# Simple bitmap text: 3x5 pixel font for digits and uppercase letters
+# Each character is encoded as 15 bits (3 wide x 5 tall, top-to-bottom, left-to-right)
+# We'll draw text with small filled rects for the neon look
+
+fn draw_char(fb, ch, cx, cy, color, scale) {
+    # Minimal font -- draw characters as small line patterns
+    # For now, use line-based block letters (3x5 grid, each pixel = scale px)
+
+    # Map ASCII to simple bitmap patterns
+    # Each pattern is 5 rows of 3 bits (stored as 5 i64 values)
+    var r0 = 0;
+    var r1 = 0;
+    var r2 = 0;
+    var r3 = 0;
+    var r4 = 0;
+
+    # Digits
+    if (ch == 48) { r0 = 7; r1 = 5; r2 = 5; r3 = 5; r4 = 7; }  # 0
+    if (ch == 49) { r0 = 2; r1 = 6; r2 = 2; r3 = 2; r4 = 7; }  # 1
+    if (ch == 50) { r0 = 7; r1 = 1; r2 = 7; r3 = 4; r4 = 7; }  # 2
+    if (ch == 51) { r0 = 7; r1 = 1; r2 = 7; r3 = 1; r4 = 7; }  # 3
+    if (ch == 52) { r0 = 5; r1 = 5; r2 = 7; r3 = 1; r4 = 1; }  # 4
+
+    # Letters (uppercase)
+    if (ch == 69) { r0 = 7; r1 = 4; r2 = 7; r3 = 4; r4 = 7; }  # E
+    if (ch == 78) { r0 = 5; r1 = 7; r2 = 7; r3 = 5; r4 = 5; }  # N
+    if (ch == 67) { r0 = 7; r1 = 4; r2 = 4; r3 = 4; r4 = 7; }  # C
+    if (ch == 79) { r0 = 7; r1 = 5; r2 = 5; r3 = 5; r4 = 7; }  # O
+    if (ch == 77) { r0 = 5; r1 = 7; r2 = 7; r3 = 5; r4 = 5; }  # M (same as N for 3px)
+    if (ch == 72) { r0 = 5; r1 = 5; r2 = 7; r3 = 5; r4 = 5; }  # H
+    if (ch == 73) { r0 = 7; r1 = 2; r2 = 2; r3 = 2; r4 = 7; }  # I
+    if (ch == 84) { r0 = 7; r1 = 2; r2 = 2; r3 = 2; r4 = 2; }  # T
+    if (ch == 83) { r0 = 7; r1 = 4; r2 = 7; r3 = 1; r4 = 7; }  # S
+    if (ch == 76) { r0 = 4; r1 = 4; r2 = 4; r3 = 4; r4 = 7; }  # L
+    if (ch == 71) { r0 = 7; r1 = 4; r2 = 7; r3 = 5; r4 = 7; }  # G
+    if (ch == 82) { r0 = 7; r1 = 5; r2 = 7; r3 = 6; r4 = 5; }  # R
+    if (ch == 68) { r0 = 6; r1 = 5; r2 = 5; r3 = 5; r4 = 6; }  # D
+    if (ch == 66) { r0 = 6; r1 = 5; r2 = 6; r3 = 5; r4 = 6; }  # B
+    if (ch == 85) { r0 = 5; r1 = 5; r2 = 5; r3 = 5; r4 = 7; }  # U
+    if (ch == 75) { r0 = 5; r1 = 5; r2 = 6; r3 = 5; r4 = 5; }  # K
+    if (ch == 65) { r0 = 7; r1 = 5; r2 = 7; r3 = 5; r4 = 5; }  # A
+    if (ch == 80) { r0 = 7; r1 = 5; r2 = 7; r3 = 4; r4 = 4; }  # P
+    if (ch == 87) { r0 = 5; r1 = 5; r2 = 7; r3 = 7; r4 = 5; }  # W
+    if (ch == 89) { r0 = 5; r1 = 5; r2 = 7; r3 = 2; r4 = 2; }  # Y
+    if (ch == 70) { r0 = 7; r1 = 4; r2 = 7; r3 = 4; r4 = 4; }  # F
+    if (ch == 88) { r0 = 5; r1 = 5; r2 = 2; r3 = 5; r4 = 5; }  # X
+
+    # Space and punctuation
+    if (ch == 32)  { return 0; }  # space: skip
+    if (ch == 45)  { r0 = 0; r1 = 0; r2 = 7; r3 = 0; r4 = 0; }  # -
+    if (ch == 46)  { r0 = 0; r1 = 0; r2 = 0; r3 = 0; r4 = 2; }  # .
+    if (ch == 58)  { r0 = 0; r1 = 2; r2 = 0; r3 = 2; r4 = 0; }  # :
+    if (ch == 124) { r0 = 2; r1 = 2; r2 = 2; r3 = 2; r4 = 2; }  # |
+    if (ch == 39)  { r0 = 2; r1 = 2; r2 = 0; r3 = 0; r4 = 0; }  # '
+
+    # Draw the 3x5 pattern
+    var row = 0;
+    while (row < 5) {
+        var bits = r0;
+        if (row == 1) { bits = r1; }
+        if (row == 2) { bits = r2; }
+        if (row == 3) { bits = r3; }
+        if (row == 4) { bits = r4; }
+
+        var col = 0;
+        while (col < 3) {
+            if ((bits >> (2 - col)) & 1) {
+                draw_filled_rect(fb, cx + col * scale, cy + row * scale,
+                                 scale, scale, color);
+            }
+            col = col + 1;
+        }
+        row = row + 1;
+    }
+    return 0;
+}
+
+fn draw_text(fb, text, x, y, color, scale) {
+    var i = 0;
+    var ch = load8(text + i);
+    var cx = x;
+    while (ch != 0) {
+        draw_char(fb, ch, cx, y, color, scale);
+        cx = cx + scale * 4;  # 3px char + 1px gap
+        i = i + 1;
+        ch = load8(text + i);
+    }
+    return 0;
+}
+
+# Menu rendering
+fn menu_render(fb) {
+    draw_clear(fb);
+
+    # Title: ENCOM'S HITS
+    draw_text(fb, "ENCOM'S HITS", 76, 20, COLOR_CYAN, 3);
+
+    # Divider line
+    draw_hline(fb, 40, 280, 50, COLOR_BLUE);
+
+    # Game list
+    var y = 70;
+    var sel_color = COLOR_WHITE;
+    var dim_color = COLOR_DIM_BLUE;
+
+    var c1 = dim_color;
+    if (menu_selection == 1) { c1 = sel_color; }
+    draw_text(fb, "1. LIGHT CYCLES", 80, y, c1, 2);
+
+    var c2 = dim_color;
+    if (menu_selection == 2) { c2 = sel_color; }
+    draw_text(fb, "2. GRID BUGS", 80, y + 30, c2, 2);
+
+    var c3 = dim_color;
+    if (menu_selection == 3) { c3 = sel_color; }
+    draw_text(fb, "3. BATTLE TANKS", 80, y + 60, c3, 2);
+
+    var c4 = dim_color;
+    if (menu_selection == 4) { c4 = sel_color; }
+    draw_text(fb, "4. MCP CONE", 80, y + 90, c4, 2);
+
+    # Footer
+    draw_hline(fb, 40, 280, 200, COLOR_BLUE);
+    draw_text(fb, "ENTER TO SELECT", 80, 210, COLOR_DIM_BLUE, 1);
+    draw_text(fb, "Q TO QUIT", 112, 224, COLOR_DIM_BLUE, 1);
+
+    return 0;
+}
+
+fn menu_update() {
+    # Arrow keys or WASD to navigate
+    if (input_key(KEY_UP) == 1) {
+        menu_selection = menu_selection - 1;
+        if (menu_selection < 1) { menu_selection = 4; }
+    }
+    if (input_key(KEY_DOWN) == 1) {
+        menu_selection = menu_selection + 1;
+        if (menu_selection > 4) { menu_selection = 1; }
+    }
+    if (input_key(KEY_W) == 1) {
+        menu_selection = menu_selection - 1;
+        if (menu_selection < 1) { menu_selection = 4; }
+    }
+    if (input_key(KEY_S) == 1) {
+        menu_selection = menu_selection + 1;
+        if (menu_selection > 4) { menu_selection = 1; }
+    }
+
+    # Direct number keys
+    if (input_key(KEY_1) == 1) { menu_selection = 1; }
+    if (input_key(KEY_2) == 1) { menu_selection = 2; }
+    if (input_key(KEY_3) == 1) { menu_selection = 3; }
+    if (input_key(KEY_4) == 1) { menu_selection = 4; }
+
+    # Enter or number key to select
+    if (input_key(KEY_ENTER) == 1) {
+        current_game = menu_selection;
+        if (current_game == GAME_LIGHTCYCLES) { lc_init(); }
+        if (current_game == GAME_GRIDBUGS) { gb_init(1); }
+        if (current_game == GAME_TANKS) { tk_init(engine_frame_count()); }
+        if (current_game == GAME_MCPCONE) { mcp_init(); }
+    }
+    if (input_key(KEY_1) == 1) { current_game = GAME_LIGHTCYCLES; lc_init(); }
+    if (input_key(KEY_2) == 1) { current_game = GAME_GRIDBUGS; gb_init(1); }
+    if (input_key(KEY_3) == 1) { current_game = GAME_TANKS; tk_init(engine_frame_count()); }
+    if (input_key(KEY_4) == 1) { current_game = GAME_MCPCONE; mcp_init(); }
+
+    return 0;
+}
+
+# Light Cycles input handling
+fn lc_handle_input() {
+    # Player 1: WASD
+    if (input_key(KEY_W) == 1) { lc_set_direction(1, DIR_UP); }
+    if (input_key(KEY_S) == 1) { lc_set_direction(1, DIR_DOWN); }
+    if (input_key(KEY_A) == 1) { lc_set_direction(1, DIR_LEFT); }
+    if (input_key(KEY_D) == 1) { lc_set_direction(1, DIR_RIGHT); }
+
+    # Player 2: Arrow keys
+    if (input_key(KEY_UP) == 1) { lc_set_direction(2, DIR_UP); }
+    if (input_key(KEY_DOWN) == 1) { lc_set_direction(2, DIR_DOWN); }
+    if (input_key(KEY_LEFT) == 1) { lc_set_direction(2, DIR_LEFT); }
+    if (input_key(KEY_RIGHT) == 1) { lc_set_direction(2, DIR_RIGHT); }
+
+    return 0;
+}
+
+# Grid Bugs input handling
+fn gb_handle_input() {
+    # Player: arrow keys or WASD
+    if (input_key(KEY_W) == 1) { gb_player_dir = DIR_UP; }
+    if (input_key(KEY_S) == 1) { gb_player_dir = DIR_DOWN; }
+    if (input_key(KEY_A) == 1) { gb_player_dir = DIR_LEFT; }
+    if (input_key(KEY_D) == 1) { gb_player_dir = DIR_RIGHT; }
+    if (input_key(KEY_UP) == 1) { gb_player_dir = DIR_UP; }
+    if (input_key(KEY_DOWN) == 1) { gb_player_dir = DIR_DOWN; }
+    if (input_key(KEY_LEFT) == 1) { gb_player_dir = DIR_LEFT; }
+    if (input_key(KEY_RIGHT) == 1) { gb_player_dir = DIR_RIGHT; }
+    return 0;
+}
+
+# Game over screen
+fn gameover_render(fb, winner) {
+    # Overlay game over text
+    if (winner == 1) {
+        draw_text(fb, "PLAYER 1 WINS", 64, 110, COLOR_CYAN, 3);
+    }
+    if (winner == 2) {
+        draw_text(fb, "PLAYER 2 WINS", 64, 110, COLOR_ORANGE, 3);
+    }
+    if (winner == 0) {
+        draw_text(fb, "DRAW", 120, 110, COLOR_WHITE, 3);
+    }
+    draw_text(fb, "ESC FOR MENU", 88, 150, COLOR_DIM_BLUE, 2);
+    return 0;
+}
+
+# Light Cycles game tick (runs slower than frame rate for playability)
+var lc_tick_counter = 0;
+var lc_tick_rate = 6;  # update every 6 frames (10 updates/sec at 60fps)
+var lc_game_done = 0;
+
+fn lc_game_tick(fb) {
+    lc_handle_input();
+
+    # AI controls Player 2
+    if (lc_p2_alive) {
+        var ai_dir = ai_lightcycles(lc_p2_x, lc_p2_y, lc_p2_dir, LC_GRID_W, LC_GRID_H);
+        if (ai_dir != DIR_NONE) {
+            lc_set_direction(2, ai_dir);
+        }
+    }
+
+    lc_tick_counter = lc_tick_counter + 1;
+    if (lc_tick_counter >= lc_tick_rate) {
+        lc_tick_counter = 0;
+        if (lc_game_done == 0) {
+            lc_update();
+            if (lc_game_over() == 1) {
+                lc_game_done = 1;
+            }
+        }
+    }
+
+    lc_render(fb);
+
+    if (lc_game_done == 1) {
+        gameover_render(fb, lc_winner());
+        if (input_key(KEY_ESC) == 1) {
+            current_game = GAME_MENU;
+            lc_game_done = 0;
+            lc_tick_counter = 0;
+        }
+    }
+
+    # ESC during play returns to menu
+    if (lc_game_done == 0) {
+        if (input_key(KEY_ESC) == 1) {
+            current_game = GAME_MENU;
+            lc_tick_counter = 0;
+        }
+    }
+
+    return 0;
+}
+
+# Grid Bugs game tick
+var gb_tick_counter = 0;
+var gb_tick_rate = 10;  # slower: 6 updates/sec
+var gb_game_done = 0;
+
+fn gb_game_tick(fb) {
+    gb_handle_input();
+
+    gb_tick_counter = gb_tick_counter + 1;
+    if (gb_tick_counter >= gb_tick_rate) {
+        gb_tick_counter = 0;
+        if (gb_game_done == 0) {
+            gb_update();
+            if (gb_player_alive == 0) {
+                gb_game_done = 1;
+            }
+            if (gb_level_complete() == 1) {
+                # Next level
+                gb_init(gb_level + 1);
+            }
+        }
+    }
+
+    gb_render(fb);
+
+    if (gb_game_done == 1) {
+        draw_text(fb, "GAME OVER", 88, 100, COLOR_RED, 3);
+        draw_text(fb, "ESC FOR MENU", 88, 140, COLOR_DIM_BLUE, 2);
+        if (input_key(KEY_ESC) == 1) {
+            current_game = GAME_MENU;
+            gb_game_done = 0;
+            gb_tick_counter = 0;
+        }
+    }
+
+    if (gb_game_done == 0) {
+        if (input_key(KEY_ESC) == 1) {
+            current_game = GAME_MENU;
+            gb_tick_counter = 0;
+        }
+    }
+
+    return 0;
+}
+
+# Battle Tanks input handling
+fn tk_handle_input() {
+    if (tk_p1_alive) {
+        var moved = 0;
+        if (input_key(KEY_W) == 1) { tk_p1_dir = DIR_UP; if (tk_try_move(tk_p1_x, tk_p1_y, DIR_UP)) { tk_p1_y = tk_p1_y - 1; } moved = 1; }
+        if (input_key(KEY_S) == 1) { tk_p1_dir = DIR_DOWN; if (tk_try_move(tk_p1_x, tk_p1_y, DIR_DOWN)) { tk_p1_y = tk_p1_y + 1; } moved = 1; }
+        if (input_key(KEY_A) == 1) { tk_p1_dir = DIR_LEFT; if (tk_try_move(tk_p1_x, tk_p1_y, DIR_LEFT)) { tk_p1_x = tk_p1_x - 1; } moved = 1; }
+        if (input_key(KEY_D) == 1) { tk_p1_dir = DIR_RIGHT; if (tk_try_move(tk_p1_x, tk_p1_y, DIR_RIGHT)) { tk_p1_x = tk_p1_x + 1; } moved = 1; }
+        if (input_key(KEY_UP) == 1) { tk_p1_dir = DIR_UP; if (tk_try_move(tk_p1_x, tk_p1_y, DIR_UP)) { tk_p1_y = tk_p1_y - 1; } }
+        if (input_key(KEY_DOWN) == 1) { tk_p1_dir = DIR_DOWN; if (tk_try_move(tk_p1_x, tk_p1_y, DIR_DOWN)) { tk_p1_y = tk_p1_y + 1; } }
+        if (input_key(KEY_LEFT) == 1) { tk_p1_dir = DIR_LEFT; if (tk_try_move(tk_p1_x, tk_p1_y, DIR_LEFT)) { tk_p1_x = tk_p1_x - 1; } }
+        if (input_key(KEY_RIGHT) == 1) { tk_p1_dir = DIR_RIGHT; if (tk_try_move(tk_p1_x, tk_p1_y, DIR_RIGHT)) { tk_p1_x = tk_p1_x + 1; } }
+        if (input_key(KEY_SPACE) == 1) { tk_fire_shot(tk_p1_x, tk_p1_y, tk_p1_dir, 1); }
+    }
+    return 0;
+}
+
+var tk_tick_counter = 0;
+var tk_tick_rate = 4;
+var tk_game_done = 0;
+
+fn tk_game_tick(fb) {
+    tk_handle_input();
+
+    tk_tick_counter = tk_tick_counter + 1;
+    if (tk_tick_counter >= tk_tick_rate) {
+        tk_tick_counter = 0;
+        if (tk_game_done == 0) {
+            tk_update();
+            if (tk_game_over() == 1) {
+                tk_game_done = 1;
+            }
+        }
+    }
+
+    tk_render(fb);
+
+    if (tk_game_done == 1) {
+        gameover_render(fb, tk_winner());
+        if (input_key(KEY_ESC) == 1) {
+            current_game = GAME_MENU;
+            tk_game_done = 0;
+            tk_tick_counter = 0;
+        }
+    }
+    if (tk_game_done == 0) {
+        if (input_key(KEY_ESC) == 1) {
+            current_game = GAME_MENU;
+            tk_tick_counter = 0;
+        }
+    }
+    return 0;
+}
+
+# MCP Cone input handling
+fn mcp_handle_input() {
+    if (input_key(KEY_LEFT) == 1) { mcp_move_left(); }
+    if (input_key(KEY_RIGHT) == 1) { mcp_move_right(); }
+    if (input_key(KEY_A) == 1) { mcp_move_left(); }
+    if (input_key(KEY_D) == 1) { mcp_move_right(); }
+    if (input_key(KEY_SPACE) == 1) { mcp_fire(); }
+    if (input_key(KEY_UP) == 1) { mcp_fire(); }
+    if (input_key(KEY_W) == 1) { mcp_fire(); }
+    return 0;
+}
+
+var mcp_tick_counter = 0;
+var mcp_tick_rate = 3;
+var mcp_game_done = 0;
+
+fn mcp_game_tick(fb) {
+    mcp_handle_input();
+
+    mcp_tick_counter = mcp_tick_counter + 1;
+    if (mcp_tick_counter >= mcp_tick_rate) {
+        mcp_tick_counter = 0;
+        if (mcp_game_done == 0) {
+            mcp_update();
+            if (mcp_won == 1) {
+                mcp_game_done = 1;
+            }
+        }
+    }
+
+    mcp_render(fb);
+
+    if (mcp_game_done == 1) {
+        draw_text(fb, "MCP DEFEATED", 64, 100, COLOR_GREEN, 3);
+        draw_text(fb, "ESC FOR MENU", 88, 140, COLOR_DIM_BLUE, 2);
+        if (input_key(KEY_ESC) == 1) {
+            current_game = GAME_MENU;
+            mcp_game_done = 0;
+            mcp_tick_counter = 0;
+        }
+    }
+    if (mcp_game_done == 0) {
+        if (input_key(KEY_ESC) == 1) {
+            current_game = GAME_MENU;
+            mcp_tick_counter = 0;
+        }
+    }
+    return 0;
+}
 
 fn main() {
-    println("ENCOM's Hits v0.1.0");
-    println("--------------------");
-    println("1. Light Cycles");
-    println("2. Grid Bugs");
-    println("3. Battle Tanks");
-    println("4. MCP Cone");
-    println("");
-    println("End of line.");
+    alloc_init();
 
-    // TODO: init framebuffer
-    // TODO: game select menu
-    // TODO: game loop dispatch
+    var fb = engine_init();
+    input_init();
 
+    current_game = GAME_MENU;
+    game_running = 1;
+
+    while (game_running == 1) {
+        engine_tick_begin();
+        input_poll();
+
+        # Dispatch based on current game
+        if (current_game == GAME_MENU) {
+            menu_update();
+            menu_render(fb);
+        }
+        if (current_game == GAME_LIGHTCYCLES) {
+            lc_game_tick(fb);
+        }
+        if (current_game == GAME_GRIDBUGS) {
+            gb_game_tick(fb);
+        }
+        if (current_game == GAME_TANKS) {
+            tk_game_tick(fb);
+        }
+        if (current_game == GAME_MCPCONE) {
+            mcp_game_tick(fb);
+        }
+
+        glow_apply(fb, SCREEN_W, SCREEN_H);
+        engine_present();
+
+        if (input_quit() == 1) {
+            game_running = 0;
+        }
+
+        engine_tick_wait();
+    }
+
+    input_shutdown();
+    engine_shutdown();
     return 0;
 }
 

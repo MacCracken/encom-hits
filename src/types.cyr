@@ -1,82 +1,85 @@
-// encom-hits — types and constants
-// Shared across all four games. Neon palette, screen dimensions, game IDs.
+# encom-hits -- types and constants
+# Shared across all four games. Neon palette, screen dimensions, game IDs.
 
-// Screen
+# Screen
 enum Screen {
-    SCREEN_W = 320,
-    SCREEN_H = 240,
-    FPS_TARGET = 60,
-    FRAME_TIME_US = 16667
+    SCREEN_W = 320;
+    SCREEN_H = 240;
+    FPS_TARGET = 60;
+    FRAME_TIME_US = 16667;
 }
 
-// Games
+# Games
 enum Game {
-    GAME_MENU = 0,
-    GAME_LIGHTCYCLES = 1,
-    GAME_GRIDBUGS = 2,
-    GAME_TANKS = 3,
-    GAME_MCPCONE = 4
+    GAME_MENU = 0;
+    GAME_LIGHTCYCLES = 1;
+    GAME_GRIDBUGS = 2;
+    GAME_TANKS = 3;
+    GAME_MCPCONE = 4;
 }
 
-// Neon color palette (ARGB)
+# Neon color palette (RGB packed as integer)
+# COLOR_CYAN = 0x00FFFF, COLOR_ORANGE = 0xFF8800, COLOR_BLUE = 0x0044FF
+# COLOR_WHITE = 0xFFFFFF, COLOR_RED = 0xFF0000, COLOR_GREEN = 0x00FF00
+# COLOR_DIM_BLUE = 0x001133, COLOR_GLOW = 0x808080
 enum Color {
-    COLOR_BLACK    = 0,
-    COLOR_CYAN     = 65535,       // 0x00FFFF
-    COLOR_ORANGE   = 16744448,    // 0xFF8800
-    COLOR_BLUE     = 17407,       // 0x0044FF
-    COLOR_WHITE    = 16777215,    // 0xFFFFFF
-    COLOR_RED      = 16711680,    // 0xFF0000
-    COLOR_GREEN    = 65280,       // 0x00FF00
-    COLOR_DIM_BLUE = 4403,        // 0x001133
-    COLOR_GLOW     = 8421504      // 0x808080 (50% for additive blend)
+    COLOR_BLACK    = 0;
+    COLOR_CYAN     = 65535;
+    COLOR_ORANGE   = 16744448;
+    COLOR_BLUE     = 17407;
+    COLOR_WHITE    = 16777215;
+    COLOR_RED      = 16711680;
+    COLOR_GREEN    = 65280;
+    COLOR_DIM_BLUE = 4403;
+    COLOR_GLOW     = 8421504;
 }
 
-// Directions (shared by light cycles, grid bugs, tanks)
+# Directions (shared by light cycles, grid bugs, tanks)
 enum Dir {
-    DIR_NONE  = 0,
-    DIR_UP    = 1,
-    DIR_DOWN  = 2,
-    DIR_LEFT  = 3,
-    DIR_RIGHT = 4
+    DIR_NONE  = 0;
+    DIR_UP    = 1;
+    DIR_DOWN  = 2;
+    DIR_LEFT  = 3;
+    DIR_RIGHT = 4;
 }
 
-// Game result
-enum Result {
-    RESULT_NONE = 0,
-    RESULT_WIN = 1,
-    RESULT_LOSE = 2,
-    RESULT_DRAW = 3
+# Game result
+enum GameResult {
+    RESULT_NONE = 0;
+    RESULT_WIN = 1;
+    RESULT_LOSE = 2;
+    RESULT_DRAW = 3;
 }
 
-// Light Cycles grid
+# Light Cycles grid: 80x60 cells, 4x4 pixels each
 enum LCGrid {
-    LC_GRID_W = 80,
-    LC_GRID_H = 60,
-    LC_CELL_W = 4,       // SCREEN_W / LC_GRID_W
-    LC_CELL_H = 4        // SCREEN_H / LC_GRID_H
+    LC_GRID_W = 80;
+    LC_GRID_H = 60;
+    LC_CELL_W = 4;
+    LC_CELL_H = 4;
 }
 
-// Grid Bugs grid
+# Grid Bugs grid: 16x12 nodes, 20x20 pixels each
 enum GBGrid {
-    GB_GRID_W = 16,
-    GB_GRID_H = 12,
-    GB_CELL_W = 20,
-    GB_CELL_H = 20
+    GB_GRID_W = 16;
+    GB_GRID_H = 12;
+    GB_CELL_W = 20;
+    GB_CELL_H = 20;
 }
 
-// Tank maze
+# Tank maze: 16x12 cells, 20x20 pixels each
 enum TankGrid {
-    TK_GRID_W = 16,
-    TK_GRID_H = 12,
-    TK_CELL_W = 20,
-    TK_CELL_H = 20,
-    TK_MAX_BOUNCES = 2
+    TK_GRID_W = 16;
+    TK_GRID_H = 12;
+    TK_CELL_W = 20;
+    TK_CELL_H = 20;
+    TK_MAX_BOUNCES = 2;
 }
 
-// MCP Cone
+# MCP Cone: 8 rings, 16 segments, centered at 160,120
 enum MCPCone {
-    MCP_RINGS = 8,
-    MCP_SEGMENTS = 16,
-    MCP_CENTER_X = 160,
-    MCP_CENTER_Y = 120
+    MCP_RINGS = 8;
+    MCP_SEGMENTS = 16;
+    MCP_CENTER_X = 160;
+    MCP_CENTER_Y = 120;
 }

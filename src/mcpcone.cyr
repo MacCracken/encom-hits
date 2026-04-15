@@ -1,0 +1,248 @@
+# encom-hits -- MCP Cone
+# Navigate through rotating concentric barriers to reach the core.
+# Timing-based, pattern recognition, increasing speed.
+#
+# 8 concentric rings, each with 16 segments. Gaps rotate.
+# Player fires projectile through gaps to break barriers.
+# Reach the center to win. Get hit = death.
+
+# Ring state: each ring has rotation angle and gap position
+var mcp_ring_angle[8];    # current rotation (0-359 in degrees * 10)
+var mcp_ring_speed[8];    # rotation speed per tick
+var mcp_ring_gap[8];      # gap segment index (0-15)
+var mcp_ring_alive[8];    # 1 = barrier active, 0 = broken
+
+# Player projectile
+var mcp_shot_x = 0;
+var mcp_shot_y = 0;
+var mcp_shot_alive = 0;
+var mcp_shot_ring = 0;    # which ring the shot is at
+
+# Game state
+var mcp_player_angle = 0; # player position around the circle (0-359 * 10)
+var mcp_player_alive = 0;
+var mcp_won = 0;
+
+# Pre-computed sin/cos table (16 entries, scaled by 100)
+# sin(i * 22.5 degrees) * 100, cos(i * 22.5 degrees) * 100
+var _mcp_sin[16];
+var _mcp_cos[16];
+
+fn _mcp_init_trig() {
+    # sin table for 16 segments (0, 22.5, 45, ... 337.5 degrees) * 100
+    store64(&_mcp_sin + 0 * 8, 0);
+    store64(&_mcp_sin + 1 * 8, 38);
+    store64(&_mcp_sin + 2 * 8, 71);
+    store64(&_mcp_sin + 3 * 8, 92);
+    store64(&_mcp_sin + 4 * 8, 100);
+    store64(&_mcp_sin + 5 * 8, 92);
+    store64(&_mcp_sin + 6 * 8, 71);
+    store64(&_mcp_sin + 7 * 8, 38);
+    store64(&_mcp_sin + 8 * 8, 0);
+    store64(&_mcp_sin + 9 * 8, 0 - 38);
+    store64(&_mcp_sin + 10 * 8, 0 - 71);
+    store64(&_mcp_sin + 11 * 8, 0 - 92);
+    store64(&_mcp_sin + 12 * 8, 0 - 100);
+    store64(&_mcp_sin + 13 * 8, 0 - 92);
+    store64(&_mcp_sin + 14 * 8, 0 - 71);
+    store64(&_mcp_sin + 15 * 8, 0 - 38);
+
+    # cos table
+    store64(&_mcp_cos + 0 * 8, 100);
+    store64(&_mcp_cos + 1 * 8, 92);
+    store64(&_mcp_cos + 2 * 8, 71);
+    store64(&_mcp_cos + 3 * 8, 38);
+    store64(&_mcp_cos + 4 * 8, 0);
+    store64(&_mcp_cos + 5 * 8, 0 - 38);
+    store64(&_mcp_cos + 6 * 8, 0 - 71);
+    store64(&_mcp_cos + 7 * 8, 0 - 92);
+    store64(&_mcp_cos + 8 * 8, 0 - 100);
+    store64(&_mcp_cos + 9 * 8, 0 - 92);
+    store64(&_mcp_cos + 10 * 8, 0 - 71);
+    store64(&_mcp_cos + 11 * 8, 0 - 38);
+    store64(&_mcp_cos + 12 * 8, 0);
+    store64(&_mcp_cos + 13 * 8, 38);
+    store64(&_mcp_cos + 14 * 8, 71);
+    store64(&_mcp_cos + 15 * 8, 92);
+
+    return 0;
+}
+
+fn _mcp_sin_get(i) { return load64(&_mcp_sin + (i % 16) * 8); }
+fn _mcp_cos_get(i) { return load64(&_mcp_cos + (i % 16) * 8); }
+
+fn _mcp_ring_get(arr, i) { return load64(arr + i * 8); }
+fn _mcp_ring_set(arr, i, v) { store64(arr + i * 8, v); return 0; }
+
+fn mcp_init() {
+    _mcp_init_trig();
+
+    mcp_player_angle = 0;
+    mcp_player_alive = 1;
+    mcp_shot_alive = 0;
+    mcp_won = 0;
+
+    var i = 0;
+    while (i < MCP_RINGS) {
+        _mcp_ring_set(&mcp_ring_angle, i, 0);
+        # Alternating rotation speeds, faster toward center
+        var speed = (i + 1) * 1;
+        if (i % 2 == 1) { speed = 0 - speed; }
+        _mcp_ring_set(&mcp_ring_speed, i, speed);
+        # Gap at different positions per ring
+        _mcp_ring_set(&mcp_ring_gap, i, (i * 3) % MCP_SEGMENTS);
+        _mcp_ring_set(&mcp_ring_alive, i, 1);
+        i = i + 1;
+    }
+
+    return 0;
+}
+
+fn mcp_update() {
+    if (mcp_player_alive == 0) { return 0; }
+    if (mcp_won == 1) { return 0; }
+
+    # Rotate rings
+    var i = 0;
+    while (i < MCP_RINGS) {
+        if (_mcp_ring_get(&mcp_ring_alive, i)) {
+            var angle = _mcp_ring_get(&mcp_ring_angle, i);
+            var speed = _mcp_ring_get(&mcp_ring_speed, i);
+            angle = angle + speed;
+            if (angle < 0) { angle = angle + 160; }
+            if (angle >= 160) { angle = angle - 160; }
+            _mcp_ring_set(&mcp_ring_angle, i, angle);
+        }
+        i = i + 1;
+    }
+
+    # Update projectile
+    if (mcp_shot_alive) {
+        mcp_shot_ring = mcp_shot_ring + 1;
+
+        if (mcp_shot_ring >= MCP_RINGS) {
+            # Reached the core -- win!
+            mcp_won = 1;
+            mcp_shot_alive = 0;
+        } else {
+            # Check if shot hits a barrier or passes through gap
+            if (_mcp_ring_get(&mcp_ring_alive, mcp_shot_ring)) {
+                # Calculate which segment the shot is at
+                var ring_offset = _mcp_ring_get(&mcp_ring_angle, mcp_shot_ring);
+                var gap = _mcp_ring_get(&mcp_ring_gap, mcp_shot_ring);
+                # Shot segment based on player angle (0-15)
+                var shot_seg = (mcp_player_angle + ring_offset) % MCP_SEGMENTS;
+                if (shot_seg < 0) { shot_seg = shot_seg + MCP_SEGMENTS; }
+
+                if (shot_seg == gap) {
+                    # Passed through gap -- break this ring
+                    _mcp_ring_set(&mcp_ring_alive, mcp_shot_ring, 0);
+
+                    # Speed ramp: remaining rings spin faster
+                    var r = 0;
+                    while (r < MCP_RINGS) {
+                        if (_mcp_ring_get(&mcp_ring_alive, r)) {
+                            var spd = _mcp_ring_get(&mcp_ring_speed, r);
+                            if (spd > 0) { spd = spd + 1; }
+                            if (spd < 0) { spd = spd - 1; }
+                            _mcp_ring_set(&mcp_ring_speed, r, spd);
+                        }
+                        r = r + 1;
+                    }
+                } else {
+                    # Hit barrier -- shot destroyed
+                    mcp_shot_alive = 0;
+                }
+            }
+            # Ring already broken -- shot passes through
+        }
+    }
+
+    return 0;
+}
+
+fn mcp_render(fb) {
+    draw_clear(fb);
+
+    # Draw concentric rings
+    var ring = 0;
+    while (ring < MCP_RINGS) {
+        var radius = 15 + (MCP_RINGS - ring) * 12;
+
+        if (_mcp_ring_get(&mcp_ring_alive, ring)) {
+            var ring_offset = _mcp_ring_get(&mcp_ring_angle, ring);
+            var gap = _mcp_ring_get(&mcp_ring_gap, ring);
+
+            # Draw segments as lines between vertices
+            var seg = 0;
+            while (seg < MCP_SEGMENTS) {
+                var effective_seg = (seg + ring_offset) % MCP_SEGMENTS;
+                if (effective_seg < 0) { effective_seg = effective_seg + MCP_SEGMENTS; }
+
+                if (seg != gap) {
+                    # Draw this segment
+                    var x0 = MCP_CENTER_X + _mcp_cos_get(seg) * radius / 100;
+                    var y0 = MCP_CENTER_Y + _mcp_sin_get(seg) * radius / 100;
+                    var next = (seg + 1) % MCP_SEGMENTS;
+                    var x1 = MCP_CENTER_X + _mcp_cos_get(next) * radius / 100;
+                    var y1 = MCP_CENTER_Y + _mcp_sin_get(next) * radius / 100;
+                    draw_line(fb, x0, y0, x1, y1, COLOR_RED);
+                }
+
+                seg = seg + 1;
+            }
+        } else {
+            # Broken ring -- draw faint remnants
+            var seg = 0;
+            while (seg < MCP_SEGMENTS) {
+                if (seg % 4 == 0) {
+                    var x0 = MCP_CENTER_X + _mcp_cos_get(seg) * radius / 100;
+                    var y0 = MCP_CENTER_Y + _mcp_sin_get(seg) * radius / 100;
+                    draw_pixel(fb, x0, y0, COLOR_DIM_BLUE);
+                }
+                seg = seg + 1;
+            }
+        }
+
+        ring = ring + 1;
+    }
+
+    # Draw MCP core (center)
+    draw_filled_rect(fb, MCP_CENTER_X - 3, MCP_CENTER_Y - 3, 7, 7, COLOR_WHITE);
+
+    # Draw player position (on outer edge)
+    var p_radius = 15 + MCP_RINGS * 12 + 8;
+    var px = MCP_CENTER_X + _mcp_cos_get(mcp_player_angle) * p_radius / 100;
+    var py = MCP_CENTER_Y + _mcp_sin_get(mcp_player_angle) * p_radius / 100;
+    draw_filled_rect(fb, px - 2, py - 2, 5, 5, COLOR_CYAN);
+
+    # Draw active projectile
+    if (mcp_shot_alive) {
+        var s_radius = 15 + (MCP_RINGS - mcp_shot_ring) * 12;
+        var sx = MCP_CENTER_X + _mcp_cos_get(mcp_player_angle) * s_radius / 100;
+        var sy = MCP_CENTER_Y + _mcp_sin_get(mcp_player_angle) * s_radius / 100;
+        draw_filled_rect(fb, sx - 1, sy - 1, 3, 3, COLOR_GREEN);
+    }
+
+    return 0;
+}
+
+fn mcp_fire() {
+    if (mcp_shot_alive == 0) {
+        mcp_shot_alive = 1;
+        mcp_shot_ring = 0 - 1;
+    }
+    return 0;
+}
+
+fn mcp_move_left() {
+    mcp_player_angle = mcp_player_angle - 1;
+    if (mcp_player_angle < 0) { mcp_player_angle = MCP_SEGMENTS - 1; }
+    return 0;
+}
+
+fn mcp_move_right() {
+    mcp_player_angle = mcp_player_angle + 1;
+    if (mcp_player_angle >= MCP_SEGMENTS) { mcp_player_angle = 0; }
+    return 0;
+}

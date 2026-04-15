@@ -1,0 +1,195 @@
+# encom-hits -- grid.cyr
+# Shared grid/maze data structures for tanks and gridbugs.
+# Maze generation via recursive backtracker (DFS).
+
+# Maze wall storage: 4 wall bits per cell (N=0, S=1, E=2, W=3)
+# 1 = wall present, 0 = wall removed (passage)
+var _maze_walls[768];   # 16 * 12 * 4 max
+var _maze_visited[192]; # 16 * 12 max
+var _maze_w = 0;
+var _maze_h = 0;
+
+# Simple PRNG (xorshift)
+var _maze_seed = 12345;
+
+fn _maze_rand() {
+    _maze_seed = _maze_seed ^ (_maze_seed << 13);
+    _maze_seed = _maze_seed ^ (_maze_seed >> 7);
+    _maze_seed = _maze_seed ^ (_maze_seed << 17);
+    if (_maze_seed < 0) { _maze_seed = 0 - _maze_seed; }
+    return _maze_seed;
+}
+
+fn _maze_wall_get(x, y, dir) {
+    var idx = (y * _maze_w + x) * 4 + dir;
+    return load64(&_maze_walls + idx * 8);
+}
+
+fn _maze_wall_set(x, y, dir, val) {
+    var idx = (y * _maze_w + x) * 4 + dir;
+    store64(&_maze_walls + idx * 8, val);
+    return 0;
+}
+
+fn _maze_vis_get(x, y) {
+    return load64(&_maze_visited + (y * _maze_w + x) * 8);
+}
+
+fn _maze_vis_set(x, y, val) {
+    store64(&_maze_visited + (y * _maze_w + x) * 8, val);
+    return 0;
+}
+
+# Remove wall between (x,y) and neighbor in direction dir
+fn _maze_carve(x, y, dir) {
+    _maze_wall_set(x, y, dir, 0);
+    # Remove opposite wall in neighbor
+    if (dir == 0) { _maze_wall_set(x, y - 1, 1, 0); }  # N -> neighbor's S
+    if (dir == 1) { _maze_wall_set(x, y + 1, 0, 0); }  # S -> neighbor's N
+    if (dir == 2) { _maze_wall_set(x + 1, y, 3, 0); }  # E -> neighbor's W
+    if (dir == 3) { _maze_wall_set(x - 1, y, 2, 0); }  # W -> neighbor's E
+    return 0;
+}
+
+# DFS stack for iterative backtracker
+var _maze_stack_x[192];
+var _maze_stack_y[192];
+var _maze_stack_top = 0;
+
+fn _maze_push(x, y) {
+    store64(&_maze_stack_x + _maze_stack_top * 8, x);
+    store64(&_maze_stack_y + _maze_stack_top * 8, y);
+    _maze_stack_top = _maze_stack_top + 1;
+    return 0;
+}
+
+fn _maze_pop_x() {
+    _maze_stack_top = _maze_stack_top - 1;
+    return load64(&_maze_stack_x + _maze_stack_top * 8);
+}
+
+fn _maze_pop_y() {
+    return load64(&_maze_stack_y + _maze_stack_top * 8);
+}
+
+# Generate a perfect maze using iterative backtracker
+fn maze_generate(w, h, seed) {
+    _maze_w = w;
+    _maze_h = h;
+    _maze_seed = seed;
+    if (_maze_seed == 0) { _maze_seed = 42; }
+
+    var total = w * h;
+
+    # Initialize: all walls present, nothing visited
+    var i = 0;
+    while (i < total * 4) {
+        store64(&_maze_walls + i * 8, 1);
+        i = i + 1;
+    }
+    memset(&_maze_visited, 0, total * 8);
+    _maze_stack_top = 0;
+
+    # Start at (0,0)
+    _maze_vis_set(0, 0, 1);
+    _maze_push(0, 0);
+
+    while (_maze_stack_top > 0) {
+        var cx = load64(&_maze_stack_x + (_maze_stack_top - 1) * 8);
+        var cy = load64(&_maze_stack_y + (_maze_stack_top - 1) * 8);
+
+        # Find unvisited neighbors
+        # Store candidates in a small array, pick random
+        var cand_dir[4];
+        var cand_count = 0;
+
+        if (cy > 0) {
+            if (_maze_vis_get(cx, cy - 1) == 0) {
+                store64(&cand_dir + cand_count * 8, 0);
+                cand_count = cand_count + 1;
+            }
+        }
+        if (cy < h - 1) {
+            if (_maze_vis_get(cx, cy + 1) == 0) {
+                store64(&cand_dir + cand_count * 8, 1);
+                cand_count = cand_count + 1;
+            }
+        }
+        if (cx < w - 1) {
+            if (_maze_vis_get(cx + 1, cy) == 0) {
+                store64(&cand_dir + cand_count * 8, 2);
+                cand_count = cand_count + 1;
+            }
+        }
+        if (cx > 0) {
+            if (_maze_vis_get(cx - 1, cy) == 0) {
+                store64(&cand_dir + cand_count * 8, 3);
+                cand_count = cand_count + 1;
+            }
+        }
+
+        if (cand_count > 0) {
+            # Pick random neighbor
+            var pick = _maze_rand() % cand_count;
+            var dir = load64(&cand_dir + pick * 8);
+
+            # Carve passage
+            _maze_carve(cx, cy, dir);
+
+            # Move to neighbor
+            var nx = cx;
+            var ny = cy;
+            if (dir == 0) { ny = cy - 1; }
+            if (dir == 1) { ny = cy + 1; }
+            if (dir == 2) { nx = cx + 1; }
+            if (dir == 3) { nx = cx - 1; }
+
+            _maze_vis_set(nx, ny, 1);
+            _maze_push(nx, ny);
+        } else {
+            # Backtrack
+            _maze_stack_top = _maze_stack_top - 1;
+        }
+    }
+
+    return 0;
+}
+
+# Check if there's a wall between (x,y) and neighbor in direction dir
+fn maze_has_wall(x, y, dir) {
+    if (x < 0) { return 1; }
+    if (x >= _maze_w) { return 1; }
+    if (y < 0) { return 1; }
+    if (y >= _maze_h) { return 1; }
+    return _maze_wall_get(x, y, dir);
+}
+
+# Draw the maze on a framebuffer
+fn maze_render(fb, cell_w, cell_h, color) {
+    var y = 0;
+    while (y < _maze_h) {
+        var x = 0;
+        while (x < _maze_w) {
+            var px = x * cell_w;
+            var py = y * cell_h;
+
+            # North wall
+            if (maze_has_wall(x, y, 0)) {
+                draw_hline(fb, px, px + cell_w, py, color);
+            }
+            # West wall
+            if (maze_has_wall(x, y, 3)) {
+                draw_vline(fb, px, py, py + cell_h, color);
+            }
+
+            x = x + 1;
+        }
+        y = y + 1;
+    }
+
+    # Bottom and right borders
+    draw_hline(fb, 0, _maze_w * cell_w, _maze_h * cell_h, color);
+    draw_vline(fb, _maze_w * cell_w, 0, _maze_h * cell_h, color);
+
+    return 0;
+}

@@ -1,0 +1,150 @@
+# encom-hits -- engine
+# Framebuffer allocation, display output, and frame timing.
+# Neon on black. Every pixel is computed. No assets.
+#
+# Display: /dev/fb0 direct write (BGRA 32-bit) with PPM fallback.
+# Timing: clock_gettime(CLOCK_MONOTONIC) + nanosleep for fixed 60fps.
+
+# Syscall numbers (Linux x86_64)
+enum Sys {
+    SYS_READ = 0;
+    SYS_WRITE = 1;
+    SYS_OPEN = 2;
+    SYS_CLOSE = 3;
+    SYS_IOCTL = 16;
+    SYS_NANOSLEEP = 35;
+    SYS_CLOCK_GETTIME = 228;
+}
+
+enum ClockId {
+    CLOCK_MONOTONIC = 1;
+}
+
+enum FileFlags {
+    O_RDWR = 2;
+    O_WRONLY = 1;
+    O_CREAT = 64;
+    O_TRUNC = 512;
+}
+
+# Framebuffer state
+var _fb_ptr = 0;
+var _fb_size = 0;
+var _fb_fd = 0;
+var _fb_ready = 0;
+
+# Timing state
+var _frame_start_s = 0;
+var _frame_start_ns = 0;
+var _target_ns = 16666667;  # 60fps = 16.667ms
+
+# Frame counter
+var _frame_count = 0;
+
+fn engine_init() {
+    # Allocate BGRA framebuffer: 320 * 240 * 4 = 307200 bytes
+    _fb_size = SCREEN_W * SCREEN_H * 4;
+    _fb_ptr = alloc(_fb_size);
+
+    # Clear to black
+    memset(_fb_ptr, 0, _fb_size);
+
+    # Try to open /dev/fb0 for direct display
+    _fb_fd = syscall(SYS_OPEN, "/dev/fb0", O_RDWR, 0);
+    if (_fb_fd < 0) {
+        _fb_fd = 0 - 1;  # mark as unavailable
+    }
+
+    _fb_ready = 1;
+    _frame_count = 0;
+    return _fb_ptr;
+}
+
+fn engine_fb() {
+    return _fb_ptr;
+}
+
+fn engine_present() {
+    if (_fb_ready == 0) { return 0; }
+
+    if (_fb_fd >= 0) {
+        # Direct write to /dev/fb0
+        # Seek to beginning: lseek(fd, 0, SEEK_SET)
+        syscall(8, _fb_fd, 0, 0);  # SYS_LSEEK = 8
+        syscall(SYS_WRITE, _fb_fd, _fb_ptr, _fb_size);
+    } else {
+        # Fallback: write PPM to /tmp/encom-hits.ppm
+        engine_write_ppm();
+    }
+
+    _frame_count = _frame_count + 1;
+    return 0;
+}
+
+fn engine_write_ppm() {
+    var fd = syscall(SYS_OPEN, "/tmp/encom-hits.ppm", O_WRONLY | O_CREAT | O_TRUNC, 438);
+    if (fd < 0) { return 0; }
+
+    # PPM header: P6\n320 240\n255\n
+    syscall(SYS_WRITE, fd, "P6\n320 240\n255\n", 15);
+
+    # Convert BGRA to RGB for PPM
+    var rgb_buf = alloc(SCREEN_W * SCREEN_H * 3);
+    var i = 0;
+    var j = 0;
+    while (i < _fb_size) {
+        var b = load8(_fb_ptr + i);
+        var g = load8(_fb_ptr + i + 1);
+        var r = load8(_fb_ptr + i + 2);
+        store8(rgb_buf + j, r);
+        store8(rgb_buf + j + 1, g);
+        store8(rgb_buf + j + 2, b);
+        i = i + 4;
+        j = j + 3;
+    }
+
+    syscall(SYS_WRITE, fd, rgb_buf, SCREEN_W * SCREEN_H * 3);
+    syscall(SYS_CLOSE, fd);
+    return 0;
+}
+
+fn engine_tick_begin() {
+    var ts[2];
+    syscall(SYS_CLOCK_GETTIME, CLOCK_MONOTONIC, &ts);
+    _frame_start_s = load64(&ts);
+    _frame_start_ns = load64(&ts + 8);
+    return 0;
+}
+
+fn engine_get_time_ns() {
+    var ts[2];
+    syscall(SYS_CLOCK_GETTIME, CLOCK_MONOTONIC, &ts);
+    return load64(&ts) * 1000000000 + load64(&ts + 8);
+}
+
+fn engine_tick_wait() {
+    var start_ns = _frame_start_s * 1000000000 + _frame_start_ns;
+    var now_ns = engine_get_time_ns();
+    var elapsed = now_ns - start_ns;
+
+    if (elapsed < _target_ns) {
+        var remain = _target_ns - elapsed;
+        var sleep_ts[2];
+        store64(&sleep_ts, remain / 1000000000);
+        store64(&sleep_ts + 8, remain % 1000000000);
+        syscall(SYS_NANOSLEEP, &sleep_ts, 0);
+    }
+    return 0;
+}
+
+fn engine_frame_count() {
+    return _frame_count;
+}
+
+fn engine_shutdown() {
+    if (_fb_fd >= 0) {
+        syscall(SYS_CLOSE, _fb_fd);
+    }
+    _fb_ready = 0;
+    return 0;
+}

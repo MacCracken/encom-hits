@@ -1,12 +1,13 @@
 [project]
 name = "encom-hits"
-version = "0.1.0"
+version = "0.5.0"
 description = "ENCOM's Hits — retro arcade game collection in Cyrius"
 license = "GPL-3.0-only"
 repository = "https://github.com/MacCracken/encom-hits"
 
 [deps]
-# Zero deps. Pure framebuffer rendering. Neon on black.
+# stdlib modules auto-included by cyrius build (order matters — single-pass compiler)
+stdlib = ["string", "alloc", "fmt"]
 
 [build]
 src = "src/main.cyr"
