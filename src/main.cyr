@@ -302,8 +302,8 @@ fn menu_render(fb) {
     draw_vline(fb, 260, 14, 26, COLOR_BLUE);
     draw_hline(fb, 246, 260, 14, COLOR_BLUE);
 
-    # Title: ENCOM'S HITS
-    draw_text(fb, "ENCOM'S HITS", 76, 20, COLOR_CYAN, 3);
+    # Title: ENCOM'S CLASSICS
+    draw_text(fb, "ENCOM - CLASICS", 76, 20, COLOR_CYAN, 3);
 
     # Divider line with end marks
     draw_hline(fb, 40, 280, 50, COLOR_BLUE);
