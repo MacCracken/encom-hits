@@ -9,9 +9,12 @@
 - **No network** — single-player/local only. No sockets, no DNS, no HTTP.
 - **No asset loading** — all visuals computed at runtime. No file format parsing except scores.dat.
 
-## Audit (v1.0.0)
+## Audit (v0.5.0 — initial pass)
 
-Seven issues found and fixed in pre-release audit:
+Seven issues found and fixed in the first audit pass. A deeper security audit
+is scheduled as part of pre-1.0.0 hardening (see `docs/development/roadmap.md`,
+v0.7→v0.9) — re-reviewing input parsing, save-file I/O, and bounds before the
+1.0.0 release.
 
 | Severity | Issue | Fix |
 |----------|-------|-----|
@@ -29,4 +32,4 @@ Seven issues found and fixed in pre-release audit:
 - Relative path `scores.dat` writes to CWD — acceptable for a game binary.
 - Packed coordinate encoding (x * 1000 + y) produces wrong values for negative y, but bounds checking prevents unsafe access.
 
-**Last Updated**: 2026-04-15
+**Last Updated**: 2026-06-03

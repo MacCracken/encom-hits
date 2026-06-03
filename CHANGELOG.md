@@ -4,11 +4,15 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
-## [1.0.1] — 2026-06-03
+## [0.6.0] — 2026-06-03
 
-Toolchain modernization — no gameplay changes. Brought the project onto the
+Toolchain modernization + first tagged pre-release. Brought the project onto the
 Cyrius 6.0.52 build system, matching the sister projects (cyrius-doom,
 cyrius-polyomino, cyrius-bb).
+
+Re-baselined the version line below 1.0 — nothing had been tagged yet, so
+`0.6.x → 0.9.x` is now reserved for play-testing, bug-fixing, and a full
+security audit before the `1.0.0` release.
 
 ### Changed
 - **Build manifest** — replaced the legacy `cyrius.toml` (`[project]`/`[deps]`/`[build]`/`[toolchain]`) with a `cyrius.cyml` manifest (`[package]`/`[build]`/`[deps]`) pinned to `cyrius = "6.0.52"`, version sourced from `VERSION` via `${file:VERSION}`. `lib/` is now resolved by `cyrius deps` and git-ignored as a build artifact.
@@ -18,14 +22,15 @@ cyrius-polyomino, cyrius-bb).
 
 ### Added
 - `src/test.cyr` — top-level `[build].test` entry, and `cyrius deps`-based vendoring of `lib/`, mirroring the sibling project layout.
+- **CI + release workflows** — `.github/workflows/ci.yml` (build · lint · `cyrius test tests/encom-hits.tcyr` · headless `--ppm` smoke · docs/version/security gates) and `release.yml` (tag-triggered, bare-SemVer tags, version-matched GitHub release), mirroring cyrius-polyomino.
 
 ### Fixed
 - **Framebuffer sizing under Cyrius 6.0.x** — the toolchain mis-folds a chained `enum * enum * literal` constant expression, dropping the first factor (`SCREEN_W * SCREEN_H * 4` evaluated to `SCREEN_H * 4` = 960 instead of 307200). This silently under-allocated the framebuffer and PPM buffers and crashed `--ppm`/gameplay rendering in a null `memset`. Reworked the four affected sites (`engine.cyr` ×3, `draw.cyr` ×1) to right-nest the grouping — `SCREEN_W * (SCREEN_H * 4)` — which folds correctly. `--ppm` again renders all 14 screenshots (320×240, correct byte sizes).
 
 ### Notes
-- Game logic is unchanged from 1.0.0 — the only source edits are the four constant-grouping fixes above, required for correctness on the 6.0.x compiler.
+- Game logic is unchanged from 0.5.0 — the only source edits are the four constant-grouping fixes above, required for correctness on the 6.0.x compiler.
 
-## [1.0.0] — 2026-04-15
+## [0.5.0] — 2026-04-15
 
 Six-game arcade collection. Shared engine, neon wireframe rendering, zero assets. 3,872 lines across 14 source files.
 

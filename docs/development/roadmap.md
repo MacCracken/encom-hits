@@ -1,6 +1,6 @@
 # ENCOM's Hits — Development Roadmap
 
-> **Status**: v1.0.1 (Cyrius 6.0.52 toolchain) | **Last Updated**: 2026-06-03
+> **Status**: v0.6.0 (Cyrius 6.0.52 toolchain) — pre-1.0 hardening | **Last Updated**: 2026-06-03
 
 ---
 
@@ -74,14 +74,41 @@ The collection.
 | 6 | High score persistence | Done | scores.dat binary file (4 x i64), read on startup, write on new best |
 | 7 | Transitions | Done | Title card serves as visual break between menu and game |
 
-## v1.0.0 — Complete Collection
+## v0.6.0 — Cyrius 6.0.x Migration (current)
+
+Onto the modern toolchain + ready for a first tag.
+
+| # | Item | Status | Notes |
+|---|------|--------|-------|
+| 1 | `cyrius.toml` → `cyrius.cyml` manifest | Done | `[package]`/`[build]`/`[deps]`, pinned `cyrius = "6.0.52"`, `lib/` via `cyrius deps` |
+| 2 | 6.x toolchain compatibility | Done | Fixed the `enum*enum*literal` const mis-fold that under-sized the framebuffer (see CHANGELOG) |
+| 3 | Test suite on 6.x | Done | `tests/encom-hits.tcyr` — `assert_*` framework, 13 assertions, `cyrius test tests/encom-hits.tcyr` |
+| 4 | CI + release workflows | Done | `.github/workflows/{ci,release}.yml` mirroring cyrius-polyomino; bare-SemVer tags |
+
+**Exit criteria**: clean build + green CI on the 6.0.52 toolchain, tag-able. **Met.**
+
+## v0.7.0 → v0.9.0 — Pre-1.0 Hardening
+
+The room before 1.0.0. No new games — confidence work.
+
+| # | Item | Status | Notes |
+|---|------|--------|-------|
+| 1 | Full hands-on play-test pass (all 6 games, real `/dev/fb0`) | Pending | Live input/feel/difficulty/frame-pacing — the one thing headless `--ppm` can't cover |
+| 2 | Bug audit + fixes | Pending | Triage anything play-testing surfaces |
+| 3 | Deep security audit | Pending | Re-audit input parsing, save-file I/O, bounds — beyond the initial 7-fix pass |
+| 4 | Cross-target build check | Pending | `--aarch64` / other targets if in scope |
+
+## v1.0.0 — Release (target, after hardening)
+
+First public tag — ships once the 0.7→0.9 hardening clears.
 
 | # | Item | Status | Notes |
 |---|------|--------|-------|
 | 1 | All 6 games complete and polished | Done | LC, GB, TK, MCP, INT, DISC — all playable with AI, scoring, high scores |
 | 2 | Consistent visual identity (neon palette) | Done | All games use shared color palette |
 | 3 | Stable 60fps on all games | Done | Frame timing in engine.cyr, simple games |
-| 4 | Security audit (input, save files) | Done | See CHANGELOG — 7 fixes across input, memory, file I/O |
+| 4 | Initial security pass (input, save files) | Done | See CHANGELOG — 7 fixes across input, memory, file I/O |
+| 5 | Play-test + bug + security audit cleared | Pending | Gated on v0.7→v0.9 above |
 
 ## Future (separate repos, separate scope)
 
@@ -93,4 +120,4 @@ The collection.
 
 ---
 
-*Last Updated: 2026-04-15*
+*Last Updated: 2026-06-03*

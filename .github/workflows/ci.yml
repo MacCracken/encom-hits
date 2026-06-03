@@ -1,0 +1,135 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_call:        # callable as a reusable workflow (release.yml's CI gate)
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: Build & Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Cyrius toolchain
+        run: |
+          CYRIUS_VERSION="${CYRIUS_VERSION:-$(grep 'cyrius *= *"' cyrius.cyml 2>/dev/null | head -1 | sed 's/.*"\(.*\)"/\1/')}"
+          echo "Installing Cyrius $CYRIUS_VERSION"
+          curl -sLO "https://github.com/MacCracken/cyrius/releases/download/$CYRIUS_VERSION/cyrius-$CYRIUS_VERSION-x86_64-linux.tar.gz"
+          tar xzf "cyrius-$CYRIUS_VERSION-x86_64-linux.tar.gz"
+          CYRIUS_DIR="cyrius-$CYRIUS_VERSION-x86_64-linux"
+          mkdir -p "$HOME/.cyrius/bin" "$HOME/.cyrius/lib"
+          cp "$CYRIUS_DIR/bin/"* "$HOME/.cyrius/bin/" 2>/dev/null || true
+          cp -r "$CYRIUS_DIR/lib/"* "$HOME/.cyrius/lib/" 2>/dev/null || true
+          chmod +x "$HOME/.cyrius/bin/"* 2>/dev/null || true
+          echo "$HOME/.cyrius/bin" >> $GITHUB_PATH
+          echo "CYRIUS_HOME=$HOME/.cyrius" >> $GITHUB_ENV
+
+      - name: Resolve dependencies
+        run: cyrius deps
+
+      - name: Build
+        run: |
+          mkdir -p build
+          cyrius build src/main.cyr build/${{ github.event.repository.name }}
+
+      - name: Lint
+        run: |
+          for f in src/*.cyr; do cyrius lint "$f"; done
+
+      - name: Test
+        # Explicit .tcyr path — matches cyrius-bb / cyrius-doom / cyrius-polyomino.
+        # The 6.0.x toolchain's bare `cyrius test` is singular (a fuller
+        # tests/ auto-discovery lands later in the 6.0.x line); naming the
+        # file is the reliable form. The grep gate fails the job unless the
+        # summary line reports 0 failures.
+        run: |
+          cyrius test tests/encom-hits.tcyr 2>&1 | tee /tmp/test_output
+          tail -1 /tmp/test_output | grep ', 0 failed'
+
+      - name: Smoke test (headless render)
+        # encom-hits is a graphical app — the unit suite can't exercise the
+        # framebuffer/render path, so this runs the binary's --ppm screenshot
+        # mode (which falls back to PPM when /dev/fb0 is absent, as in CI) and
+        # asserts it exits clean and writes a correctly-sized splash frame
+        # (P6 320x240 = 230415 bytes). Guards the class of render/sizing bug
+        # that a build + unit test alone would miss.
+        run: |
+          ./build/${{ github.event.repository.name }} --ppm
+          test -s /tmp/encom_splash.ppm
+          SIZE=$(wc -c < /tmp/encom_splash.ppm)
+          test "$SIZE" -eq 230415 || { echo "::error::splash.ppm is $SIZE bytes, expected 230415 (320x240 P6) — framebuffer under-sized?"; exit 1; }
+          echo "OK: --ppm rendered $(ls /tmp/encom_*.ppm | wc -l) screens, splash $SIZE bytes"
+
+  docs:
+    name: Documentation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check required files
+        run: |
+          for doc in README.md CHANGELOG.md VERSION LICENSE CLAUDE.md CONTRIBUTING.md SECURITY.md CODE_OF_CONDUCT.md cyrius.cyml; do
+            test -f "$doc" && echo "OK: $doc" || { echo "MISSING: $doc"; exit 1; }
+          done
+
+      - name: Verify version consistency
+        # VERSION is the single source of truth; cyrius.cyml uses the
+        # ${file:VERSION} template — resolve it for the comparison. Same
+        # shape as cyrius-bb / cyrius-doom / cyrius-polyomino CI.
+        run: |
+          FILE_VERSION=$(cat VERSION | tr -d '[:space:]')
+          CYML_RAW=$(grep '^version = ' cyrius.cyml | head -1 | sed 's/version = "\(.*\)"/\1/')
+          if [ "$CYML_RAW" = "\${file:VERSION}" ]; then
+              CYML_VERSION="$FILE_VERSION"
+          else
+              CYML_VERSION="$CYML_RAW"
+          fi
+          [ "$FILE_VERSION" = "$CYML_VERSION" ] || { echo "VERSION ($FILE_VERSION) != cyrius.cyml ($CYML_RAW)"; exit 1; }
+          grep -q "$FILE_VERSION" CHANGELOG.md || { echo "FAIL: version not in CHANGELOG.md"; exit 1; }
+          echo "Version consistent: $FILE_VERSION (cyml: $CYML_RAW)"
+
+  security:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    # Cheap, toolchain-free greps over src/ that fail the job on a finding.
+    # Per-push net; the SECURITY.md audit checklist is the deep pass.
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: No shell-injection sinks
+        run: |
+          if grep -rnE 'sys_system|exec_cmd' src/; then
+            echo "::error::shell-injection sink in src/ — never pass untrusted input to a shell"
+            exit 1
+          fi
+          echo "OK: no sys_system / exec_cmd in src/"
+
+      - name: No raw execve
+        run: |
+          if grep -rnE 'execve|syscall\([[:space:]]*59[[:space:]]*,' src/; then
+            echo "::error::raw execve in src/"
+            exit 1
+          fi
+          echo "OK: no raw execve in src/"
+
+      - name: No oversized stack buffers (>= 64KB)
+        # var name[N] is N BYTES; a stack buffer >= 64KB risks a guard-page
+        # smash. Flags any literal-sized stack buffer at or above 65536.
+        # (encom's large arrays — _ai_*[4800], lc_grid, etc. — are file-scope
+        # statics in .bss, not stack frames, and well under this bound.)
+        run: |
+          BIG=$(grep -rnoE 'var [A-Za-z_][A-Za-z0-9_]*\[[0-9]+\]' src/ | awk -F'[][]' '$2+0 >= 65536')
+          if [ -n "$BIG" ]; then
+            echo "::error::stack buffer >= 64KB in src/:"
+            echo "$BIG"
+            exit 1
+          fi
+          echo "OK: no stack buffers >= 64KB in src/"
