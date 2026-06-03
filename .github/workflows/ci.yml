@@ -20,36 +20,44 @@ jobs:
 
       - name: Install Cyrius toolchain
         run: |
-          CYRIUS_VERSION="${CYRIUS_VERSION:-$(grep 'cyrius *= *"' cyrius.cyml 2>/dev/null | head -1 | sed 's/.*"\(.*\)"/\1/')}"
+          set -e
+          # cyrius.cyml's [package].cyrius pin is the single source of truth
+          # for the toolchain version — nothing is hardcoded in this YAML.
+          # Delegate fetch + layout to the upstream installer (matches
+          # patra / vani / cyrius-doom CI); it lays out $HOME/.cyrius in the
+          # versioned form the cyrius CLI's stdlib resolver expects, so a
+          # bare `cyrius deps` resolves the stdlib snapshot correctly.
+          CYRIUS_VERSION="$(grep '^cyrius = ' cyrius.cyml | head -1 | sed 's/cyrius = "\(.*\)"/\1/')"
           echo "Installing Cyrius $CYRIUS_VERSION"
-          curl -sLO "https://github.com/MacCracken/cyrius/releases/download/$CYRIUS_VERSION/cyrius-$CYRIUS_VERSION-x86_64-linux.tar.gz"
-          tar xzf "cyrius-$CYRIUS_VERSION-x86_64-linux.tar.gz"
-          CYRIUS_DIR="cyrius-$CYRIUS_VERSION-x86_64-linux"
-          mkdir -p "$HOME/.cyrius/bin" "$HOME/.cyrius/lib"
-          cp "$CYRIUS_DIR/bin/"* "$HOME/.cyrius/bin/" 2>/dev/null || true
-          cp -r "$CYRIUS_DIR/lib/"* "$HOME/.cyrius/lib/" 2>/dev/null || true
-          chmod +x "$HOME/.cyrius/bin/"* 2>/dev/null || true
-          echo "$HOME/.cyrius/bin" >> $GITHUB_PATH
-          echo "CYRIUS_HOME=$HOME/.cyrius" >> $GITHUB_ENV
+          curl -sSf https://raw.githubusercontent.com/MacCracken/cyrius/main/scripts/install.sh | \
+            CYRIUS_VERSION="$CYRIUS_VERSION" sh
+          echo "$HOME/.cyrius/bin" >> "$GITHUB_PATH"
 
       - name: Resolve dependencies
+        # encom-hits is stdlib-only (no [deps.X] git overrides), so there is
+        # no cyrius.lock to verify — `cyrius deps` vendors the stdlib modules
+        # listed in [deps].stdlib from the installed toolchain snapshot.
         run: cyrius deps
 
       - name: Build
         run: |
           mkdir -p build
           cyrius build src/main.cyr build/${{ github.event.repository.name }}
+          echo "${{ github.event.repository.name }}: $(wc -c < build/${{ github.event.repository.name }}) bytes"
 
       - name: Lint
+        # Soft gate (matches cyrius-doom): runs the linter for visibility but
+        # does not fail on style warnings. A few tank-input one-liners exceed
+        # the 120-char guide; wrapping them is part of the 0.7→0.9 hardening,
+        # after which this can be tightened to patra's hard "any warn fails".
         run: |
           for f in src/*.cyr; do cyrius lint "$f"; done
 
       - name: Test
-        # Explicit .tcyr path — matches cyrius-bb / cyrius-doom / cyrius-polyomino.
-        # The 6.0.x toolchain's bare `cyrius test` is singular (a fuller
-        # tests/ auto-discovery lands later in the 6.0.x line); naming the
-        # file is the reliable form. The grep gate fails the job unless the
-        # summary line reports 0 failures.
+        # Explicit .tcyr path — the 6.0.x toolchain's bare `cyrius test` is
+        # singular (fuller tests/ auto-discovery lands later in the 6.0.x
+        # line). The grep gate fails the job unless the summary reports 0
+        # failures.
         run: |
           cyrius test tests/encom-hits.tcyr 2>&1 | tee /tmp/test_output
           tail -1 /tmp/test_output | grep ', 0 failed'
@@ -83,7 +91,7 @@ jobs:
       - name: Verify version consistency
         # VERSION is the single source of truth; cyrius.cyml uses the
         # ${file:VERSION} template — resolve it for the comparison. Same
-        # shape as cyrius-bb / cyrius-doom / cyrius-polyomino CI.
+        # shape as patra / cyrius-doom CI.
         run: |
           FILE_VERSION=$(cat VERSION | tr -d '[:space:]')
           CYML_RAW=$(grep '^version = ' cyrius.cyml | head -1 | sed 's/version = "\(.*\)"/\1/')
