@@ -1,57 +1,58 @@
-// encom-hits — test suite
+# encom-hits test suite -- pure-logic checks over the shared constants and
+# math invariants. Headless (no tty / framebuffer). stdlib (assert) is
+# auto-included via cyrius.cyml [deps]; project constants pulled in below.
 
-fn test_direction_opposite() {
-    // Light cycles: can't reverse direction (instant death)
-    // Verify direction enum values are distinct
-    assert(DIR_UP != DIR_DOWN, "up != down");
-    assert(DIR_LEFT != DIR_RIGHT, "left != right");
-    assert(DIR_NONE != DIR_UP, "none != up");
+include "src/types.cyr"
+
+# Light Cycles: direction enum values must be distinct -- a cycle can never
+# reverse into itself, so the renderer/AI rely on these being unique.
+fn test_direction_distinct(): i64 {
+    assert_neq(DIR_UP, DIR_DOWN, "up != down");
+    assert_neq(DIR_LEFT, DIR_RIGHT, "left != right");
+    assert_neq(DIR_NONE, DIR_UP, "none != up");
     return 0;
 }
 
-fn test_grid_bounds() {
-    // Light cycles grid dimensions
-    assert(LC_GRID_W * LC_CELL_W == SCREEN_W, "LC grid should fill screen width");
-    assert(LC_GRID_H * LC_CELL_H == SCREEN_H, "LC grid should fill screen height");
+# Light Cycles grid must tile the screen exactly (no partial cells).
+fn test_grid_bounds(): i64 {
+    assert_eq(LC_GRID_W * LC_CELL_W, SCREEN_W, "LC grid fills screen width");
+    assert_eq(LC_GRID_H * LC_CELL_H, SCREEN_H, "LC grid fills screen height");
     return 0;
 }
 
-fn test_tank_ricochet_angle() {
-    // Projectile hitting a vertical wall: reflect x velocity
+# Battle Tanks: a projectile hitting a vertical wall reflects x, preserves y.
+fn test_tank_ricochet_angle(): i64 {
     var vx = 3;
     var vy = 2;
-    // Hit vertical wall → vx = -vx
     vx = 0 - vx;
-    assert(vx == (0 - 3), "vertical wall reflects x velocity");
-    assert(vy == 2, "vertical wall preserves y velocity");
+    assert_eq(vx, 0 - 3, "vertical wall reflects x velocity");
+    assert_eq(vy, 2, "vertical wall preserves y velocity");
     return 0;
 }
 
-fn test_mcp_ring_count() {
-    assert(MCP_RINGS == 8, "MCP cone should have 8 rings");
-    assert(MCP_SEGMENTS == 16, "each ring should have 16 segments");
+# MCP Cone geometry: 8 concentric rings, 16 segments each.
+fn test_mcp_ring_count(): i64 {
+    assert_eq(MCP_RINGS, 8, "MCP cone has 8 rings");
+    assert_eq(MCP_SEGMENTS, 16, "each ring has 16 segments");
     return 0;
 }
 
-fn test_color_palette() {
-    // Verify key colors are non-zero (except black)
-    assert(COLOR_BLACK == 0, "black should be 0");
-    assert(COLOR_CYAN > 0, "cyan should be non-zero");
-    assert(COLOR_ORANGE > 0, "orange should be non-zero");
-    assert(COLOR_RED > 0, "red should be non-zero");
+# Neon palette: black is the zero/background sentinel, every neon is non-zero.
+fn test_color_palette(): i64 {
+    assert_eq(COLOR_BLACK, 0, "black is 0");
+    assert_gt(COLOR_CYAN, 0, "cyan is non-zero");
+    assert_gt(COLOR_ORANGE, 0, "orange is non-zero");
+    assert_gt(COLOR_RED, 0, "red is non-zero");
     return 0;
 }
 
-fn main() {
-    test_direction_opposite();
+fn main(): i64 {
+    test_direction_distinct();
     test_grid_bounds();
     test_tank_ricochet_angle();
     test_mcp_ring_count();
     test_color_palette();
-
-    println("encom-hits: all tests passed");
-    println("End of line.");
-    return 0;
+    return assert_summary();
 }
 
 var exit_code = main();

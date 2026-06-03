@@ -1,0 +1,11 @@
+# encom-hits -- top-level test entry (referenced by cyrius.cyml [build].test).
+# Unit cases live in tests/encom-hits.tcyr; this entry exists so `cyrius test`
+# has a [build].test target to drive alongside the auto-discovered tcyr suite.
+# Uses the raw `syscall` builtin (exit = 60) so it needs no stdlib include.
+
+fn main(): i64 {
+    return 0;
+}
+
+var r = main();
+syscall(60, r);

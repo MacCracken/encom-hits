@@ -4,6 +4,27 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [1.0.1] — 2026-06-03
+
+Toolchain modernization — no gameplay changes. Brought the project onto the
+Cyrius 6.0.52 build system, matching the sister projects (cyrius-doom,
+cyrius-polyomino, cyrius-bb).
+
+### Changed
+- **Build manifest** — replaced the legacy `cyrius.toml` (`[project]`/`[deps]`/`[build]`/`[toolchain]`) with a `cyrius.cyml` manifest (`[package]`/`[build]`/`[deps]`) pinned to `cyrius = "6.0.52"`, version sourced from `VERSION` via `${file:VERSION}`. `lib/` is now resolved by `cyrius deps` and git-ignored as a build artifact.
+- **Dependency surface** — stdlib deps are now `string`, `alloc`, `vec`, `assert`. `fmt` was dropped as a direct dep (the games hand-render every glyph via the 3×5 bitmap font); it still rides in transitively via `assert`, and `vec` is listed so `fmt`'s variadic `vec_get` path stays resolved and the build is warning-free.
+- **Toolchain pin** — removed the stale `.cyrius-toolchain` (4.8.5-1) file; the `cyrius` field in `cyrius.cyml` is now the single source of truth. README/CONTRIBUTING bumped to require Cyrius ≥ 6.0.52.
+- **Test suite** — rewrote `tests/encom-hits.tcyr` for the 6.x toolchain: `#` comments (the lexer no longer accepts `//`), `include "src/types.cyr"` so the constant assertions resolve, and the stdlib `assert_*` framework with `assert_summary()`. 13 assertions, all passing.
+
+### Added
+- `src/test.cyr` — top-level `[build].test` entry, and `cyrius deps`-based vendoring of `lib/`, mirroring the sibling project layout.
+
+### Fixed
+- **Framebuffer sizing under Cyrius 6.0.x** — the toolchain mis-folds a chained `enum * enum * literal` constant expression, dropping the first factor (`SCREEN_W * SCREEN_H * 4` evaluated to `SCREEN_H * 4` = 960 instead of 307200). This silently under-allocated the framebuffer and PPM buffers and crashed `--ppm`/gameplay rendering in a null `memset`. Reworked the four affected sites (`engine.cyr` ×3, `draw.cyr` ×1) to right-nest the grouping — `SCREEN_W * (SCREEN_H * 4)` — which folds correctly. `--ppm` again renders all 14 screenshots (320×240, correct byte sizes).
+
+### Notes
+- Game logic is unchanged from 1.0.0 — the only source edits are the four constant-grouping fixes above, required for correctness on the 6.0.x compiler.
+
 ## [1.0.0] — 2026-04-15
 
 Six-game arcade collection. Shared engine, neon wireframe rendering, zero assets. 3,872 lines across 14 source files.

@@ -2,8 +2,9 @@
 /build/
 /dist/
 
-# Resolved deps
-lib/*.cyr
+# Resolved deps — lib/ is populated by `cyrius deps` from cyrius.cyml [deps],
+# a build artifact (stdlib copies / git-override symlinks), not source.
+/lib/
 
 # IDE
 .idea/

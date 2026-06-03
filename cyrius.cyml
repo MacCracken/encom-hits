@@ -1,0 +1,42 @@
+[package]
+name = "encom-hits"
+version = "${file:VERSION}"
+description = "ENCOM's Hits — retro arcade game collection in Cyrius. Six games, one engine, neon-on-black wireframe. The art is math."
+license = "GPL-3.0-only"
+repository = "https://github.com/MacCracken/encom-hits"
+language = "cyrius"
+cyrius = "6.0.52"
+
+[build]
+entry = "src/main.cyr"
+test = "src/test.cyr"
+output = "build/encom-hits"
+
+# Zero-asset, self-rolled on bare Cyrius stdlib — every visual is a computed
+# line/arc/polygon (no engine, GPU, or physics deps on the critical path).
+# Same retro-port-in-Cyrius pattern as cyrius-doom / cyrius-polyomino / cyrius-bb.
+#
+# The collection defines its own SYS_* enum (src/engine.cyr) and calls the
+# `syscall` builtin directly, so no `syscalls` module is needed. The runtime
+# surface is deliberately tiny: alloc (allocation) + string (memcpy/memset/
+# strlen/println). Every glyph is hand-rendered via the 3x5 bitmap font, so
+# the game code itself never touches the variadic formatter.
+#
+# `assert` backs the tcyr unit suite and pulls `fmt` transitively (it prints
+# assertion counts via fmt_int); `fmt`'s variadic path in turn references
+# vec_get, so `vec` is listed to keep that symbol resolved and the build
+# warning-free. Both ride along as dead code in the main binary (DCE NOPs them).
+#
+# Order matters — Cyrius is single-pass; deps are prepended as includes, so
+# `string`/`alloc` must precede anything using strlen/alloc/memcpy/memset.
+[deps]
+stdlib = ["string", "alloc", "vec", "assert"]
+
+# Earmarked external deps — dormant until their milestone, kept commented so
+# the build stays warning-free (an unused dep just adds link warnings + weight).
+#
+# vani — audio device I/O (MCP Voice phase). Cyrius-native; cyrius-doom pins 0.9.4.
+# [deps.vani]
+# git = "https://github.com/MacCracken/vani.git"
+# tag = "0.9.4"
+# modules = ["dist/vani-core.cyr"]

@@ -20,11 +20,12 @@ Retro arcade game collection in Cyrius. Six games, one engine, neon on black. Th
 ## Build
 
 ```sh
+cyrius deps                                   # vendor stdlib into lib/ (first build only)
 cyrius build src/main.cyr build/encom-hits
 ./build/encom-hits
 ```
 
-Requires Cyrius >= 4.8.5.
+Requires Cyrius >= 6.0.52.
 
 ## Screenshots
 

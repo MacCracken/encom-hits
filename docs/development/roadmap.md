@@ -1,6 +1,6 @@
 # ENCOM's Hits — Development Roadmap
 
-> **Status**: v1.0.0 complete | **Last Updated**: 2026-04-15
+> **Status**: v1.0.1 (Cyrius 6.0.52 toolchain) | **Last Updated**: 2026-06-03
 
 ---
 
