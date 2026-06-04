@@ -27,11 +27,45 @@ enum FileFlags {
     O_TRUNC = 512;
 }
 
+# Linux framebuffer geometry probe.
+# The real panel's scanline pitch (line_length) is almost never
+# SCREEN_W*4, and its resolution is almost never 320x240. Blitting a
+# tightly-packed 320-wide block straight to /dev/fb0 tiles horizontally
+# and collapses into the top band of a real display — the "only the top
+# ~20px work, image repeated 8x across" bug (same root cause fixed in
+# cyrius-doom and cyrius-polyomino). We must query the real geometry and
+# integer-scale + center the surface, honoring the physical pitch.
+enum FbIoctl {
+    SYS_LSEEK           = 8;
+    FBIOGET_VSCREENINFO = 0x4600;   # fb_var_screeninfo
+    FBIOGET_FSCREENINFO = 0x4602;   # fb_fix_screeninfo
+    # fb_var_screeninfo field offsets (u32 each)
+    VINFO_XRES          = 0;
+    VINFO_YRES          = 4;
+    VINFO_BPP           = 24;
+    # fb_fix_screeninfo field offset
+    FINFO_LINE_LENGTH   = 48;       # u32 pitch in bytes
+    FB_VINFO_SIZE       = 256;      # >= sizeof(fb_var_screeninfo)
+    FB_FINFO_SIZE       = 256;      # >= sizeof(fb_fix_screeninfo)
+}
+
 # Framebuffer state
 var _fb_ptr = 0;
 var _fb_size = 0;
 var _fb_fd = 0;
 var _fb_ready = 0;
+
+# Real panel geometry (filled by engine_init via ioctl)
+var _fb_xres  = 0;
+var _fb_yres  = 0;
+var _fb_bpp   = 0;
+var _fb_pitch = 0;          # physical scanline stride in bytes
+
+# Integer-scaled, centered blit placement (computed once at init)
+var _fb_scale = 1;
+var _fb_xoff  = 0;          # left letterbox, pixels
+var _fb_yoff  = 0;          # top letterbox, rows
+var _fb_blit  = 0;          # full-screen scratch (pitch * yres)
 
 # Timing state
 var _frame_start_s = 0;
@@ -58,6 +92,8 @@ fn engine_init() {
     _fb_fd = syscall(SYS_OPEN, "/dev/fb0", O_RDWR, 0);
     if (_fb_fd < 0) {
         _fb_fd = 0 - 1;  # mark as unavailable
+    } else {
+        engine_probe_fb();
     }
 
     # Allocate PPM buffer for fallback path (avoids per-frame alloc leak)
@@ -68,6 +104,51 @@ fn engine_init() {
     return _fb_ptr;
 }
 
+# Query the real panel geometry, compute the largest integer scale that
+# fits, and allocate the full-screen scratch we blit through. Without
+# this we'd assume 320x240 with a 1280-byte pitch and tile garbage across
+# the top of the screen.
+fn engine_probe_fb() {
+    var vinfo = alloc(FB_VINFO_SIZE);
+    var finfo = alloc(FB_FINFO_SIZE);
+    memset(vinfo, 0, FB_VINFO_SIZE);
+    memset(finfo, 0, FB_FINFO_SIZE);
+
+    syscall(SYS_IOCTL, _fb_fd, FBIOGET_VSCREENINFO, vinfo);
+    syscall(SYS_IOCTL, _fb_fd, FBIOGET_FSCREENINFO, finfo);
+
+    _fb_xres  = load32(vinfo + VINFO_XRES);
+    _fb_yres  = load32(vinfo + VINFO_YRES);
+    _fb_bpp   = load32(vinfo + VINFO_BPP);
+    _fb_pitch = load32(finfo + FINFO_LINE_LENGTH);
+
+    # Defend against a driver that reports nothing useful.
+    if (_fb_xres <= 0) { _fb_xres = SCREEN_W; }
+    if (_fb_yres <= 0) { _fb_yres = SCREEN_H; }
+    if (_fb_bpp  <= 0) { _fb_bpp  = 32; }
+    if (_fb_pitch < _fb_xres * (_fb_bpp / 8)) {
+        _fb_pitch = _fb_xres * (_fb_bpp / 8);
+    }
+
+    # Largest integer scale that fits both axes (>= 1).
+    var sx = _fb_xres / SCREEN_W;
+    var sy = _fb_yres / SCREEN_H;
+    _fb_scale = sx;
+    if (sy < _fb_scale) { _fb_scale = sy; }
+    if (_fb_scale < 1)  { _fb_scale = 1; }
+
+    _fb_xoff = (_fb_xres - SCREEN_W * _fb_scale) / 2;
+    _fb_yoff = (_fb_yres - SCREEN_H * _fb_scale) / 2;
+    if (_fb_xoff < 0) { _fb_xoff = 0; }
+    if (_fb_yoff < 0) { _fb_yoff = 0; }
+
+    # Full-screen scratch: blit once into RAM, one write() to vram.
+    # Letterbox bars stay black (zeroed here, never overwritten).
+    _fb_blit = alloc(_fb_pitch * _fb_yres);
+    memset(_fb_blit, 0, _fb_pitch * _fb_yres);
+    return 0;
+}
+
 fn engine_fb() {
     return _fb_ptr;
 }
@@ -76,16 +157,73 @@ fn engine_present() {
     if (_fb_ready == 0) { return 0; }
 
     if (_fb_fd >= 0) {
-        # Direct write to /dev/fb0
-        # Seek to beginning: lseek(fd, 0, SEEK_SET)
-        syscall(8, _fb_fd, 0, 0);  # SYS_LSEEK = 8
-        syscall(SYS_WRITE, _fb_fd, _fb_ptr, _fb_size);
+        # Integer-scale + center-blit the 320x240 BGRX surface into the
+        # real panel, then write just the active band (the letterbox bars
+        # were blacked once at init).
+        engine_blit();
+        var rows = SCREEN_H * _fb_scale;
+        if (_fb_yoff + rows > _fb_yres) { rows = _fb_yres - _fb_yoff; }
+        syscall(SYS_LSEEK, _fb_fd, _fb_yoff * _fb_pitch, 0);
+        syscall(SYS_WRITE, _fb_fd, _fb_blit + _fb_yoff * _fb_pitch,
+                rows * _fb_pitch);
     } else {
         # Fallback: write PPM to /tmp/encom-hits.ppm
         engine_write_ppm();
     }
 
     _frame_count = _frame_count + 1;
+    return 0;
+}
+
+# Scale + center the 320x240 BGRX source into _fb_blit, honoring the
+# panel's pitch and bpp. Source byte order (B,G,R,X) already matches a
+# 32bpp little-endian framebuffer, so 32bpp is a straight copy with the
+# alpha/pad byte forced opaque; 16bpp packs to RGB565.
+fn engine_blit() {
+    var bpp_bytes = _fb_bpp / 8;
+    var row_bytes = SCREEN_W * (_fb_scale * bpp_bytes);
+    var sy = 0;
+    while (sy < SCREEN_H) {
+        var src_row = _fb_ptr + sy * (SCREEN_W * 4);
+        var dy0     = _fb_yoff + sy * _fb_scale;
+        var first   = _fb_blit + dy0 * _fb_pitch + _fb_xoff * bpp_bytes;
+        var dx      = first;
+        var sx      = 0;
+        while (sx < SCREEN_W) {
+            var so = sx * 4;
+            if (_fb_bpp == 16) {
+                var b = load8(src_row + so);
+                var g = load8(src_row + so + 1);
+                var r = load8(src_row + so + 2);
+                var p16 = ((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3);
+                var rx = 0;
+                while (rx < _fb_scale) {
+                    store8(dx, p16 & 0xFF);
+                    store8(dx + 1, (p16 >> 8) & 0xFF);
+                    dx = dx + 2;
+                    rx = rx + 1;
+                }
+            } else {
+                # 32bpp: reuse the source pixel verbatim, force opaque.
+                var p32 = load32(src_row + so) | 0xFF000000;
+                var rx = 0;
+                while (rx < _fb_scale) {
+                    store32(dx, p32);
+                    dx = dx + bpp_bytes;
+                    rx = rx + 1;
+                }
+            }
+            sx = sx + 1;
+        }
+        # Replicate the just-built row to fill the vertical scale block.
+        var ry = 1;
+        while (ry < _fb_scale) {
+            memcpy(_fb_blit + (dy0 + ry) * _fb_pitch + _fb_xoff * bpp_bytes,
+                   first, row_bytes);
+            ry = ry + 1;
+        }
+        sy = sy + 1;
+    }
     return 0;
 }
 

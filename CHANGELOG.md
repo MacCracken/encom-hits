@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.6.1] — 2026-06-03
+
+Framebuffer display fix — the games now render correctly on a real Linux
+console instead of tiling into the top band of the panel. Same root cause and
+fix as the sister projects (cyrius-doom `c9320b5`, cyrius-polyomino `83bd91a`).
+
+### Fixed
+- **Framebuffer geometry probing** — `engine_present` blitted the packed 320×240 BGRX surface straight to `/dev/fb0` with `lseek(0)` + one contiguous `write`, assuming the panel was exactly 320×240 with a 1280-byte pitch. On any real console the physical scanline pitch (`line_length`) and resolution differ, so the surface tiled horizontally and collapsed into the top ~20px of the display (image repeated ~8× across). `engine_init` now probes the real geometry via `FBIOGET_VSCREENINFO` / `FBIOGET_FSCREENINFO` (ioctl), and the new `engine_blit` integer-scales + centers the surface into a full-screen scratch buffer, honoring the panel's pitch and bit depth (32bpp BGRX verbatim copy, 16bpp RGB565 pack), writing only the active band each frame with the letterbox bars blacked once at init. Degrades gracefully when `/dev/fb0` is unavailable (PPM fallback unchanged).
+
+### Notes
+- Render/simulation logic is unchanged — the only edits are in `src/engine.cyr` (display path). The `--ppm` screenshot path is untouched and still emits all 14 frames at 320×240.
+
 ## [0.6.0] — 2026-06-03
 
 Toolchain modernization + first tagged pre-release. Brought the project onto the
