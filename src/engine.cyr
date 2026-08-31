@@ -72,6 +72,14 @@ var _frame_start_s = 0;
 var _frame_start_ns = 0;
 var _target_ns = 16666667;  # 60fps = 16.667ms
 
+# timespec scratch buffers — must be file-scope: a function-local `var X[N]`
+# reserves only one 8-byte slot, so a 16-byte timespec would smash the frame.
+# Each is written and consumed within a single call; none of these functions
+# recurses or runs from a signal handler, so one static apiece is safe.
+var _engine_ts[2];        # engine_tick_begin
+var _engine_now_ts[2];    # engine_get_time_ns
+var _engine_sleep_ts[2];  # engine_tick_wait
+
 # Frame counter
 var _frame_count = 0;
 
@@ -260,17 +268,15 @@ fn engine_write_ppm_to(path) {
 }
 
 fn engine_tick_begin() {
-    var ts[2];
-    syscall(SYS_CLOCK_GETTIME, CLOCK_MONOTONIC, &ts);
-    _frame_start_s = load64(&ts);
-    _frame_start_ns = load64(&ts + 8);
+    syscall(SYS_CLOCK_GETTIME, CLOCK_MONOTONIC, &_engine_ts);
+    _frame_start_s = load64(&_engine_ts);
+    _frame_start_ns = load64(&_engine_ts + 8);
     return 0;
 }
 
 fn engine_get_time_ns() {
-    var ts[2];
-    syscall(SYS_CLOCK_GETTIME, CLOCK_MONOTONIC, &ts);
-    return load64(&ts) * 1000000000 + load64(&ts + 8);
+    syscall(SYS_CLOCK_GETTIME, CLOCK_MONOTONIC, &_engine_now_ts);
+    return load64(&_engine_now_ts) * 1000000000 + load64(&_engine_now_ts + 8);
 }
 
 fn engine_tick_wait() {
@@ -280,10 +286,9 @@ fn engine_tick_wait() {
 
     if (elapsed < _target_ns) {
         var remain = _target_ns - elapsed;
-        var sleep_ts[2];
-        store64(&sleep_ts, remain / 1000000000);
-        store64(&sleep_ts + 8, remain % 1000000000);
-        syscall(SYS_NANOSLEEP, &sleep_ts, 0);
+        store64(&_engine_sleep_ts, remain / 1000000000);
+        store64(&_engine_sleep_ts + 8, remain % 1000000000);
+        syscall(SYS_NANOSLEEP, &_engine_sleep_ts, 0);
     }
     return 0;
 }

@@ -4,6 +4,24 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+### Fixed
+- **Stack-frame overflow through function-local arrays — the five sites are now file-scope `.bss`.** On the pinned toolchain a *function-local* `var X[N]` reserves exactly one 8-byte slot regardless of `N` (measured: for locals `var a[2]; var b[2];` and `var a[8]; var b[8];`, `&b - &a` is −8 in both cases), while a file-scope `var X[N]` correctly reserves N slots. encom addresses its local arrays as 8-byte slots via `store64(&X + i*8, …)` / `load64(&X + i*8)`, so every write past index 0 landed outside the reservation and smashed adjacent frame memory. Each site moved to a private file-scope array in its own module, matching the pattern already used for `_ai_g_cost[4800]` and `lc_grid[4800]`:
+  - `main.cyr` `draw_number` — `digits[8]` → `_draw_digits[8]`
+  - `grid.cyr` `maze_generate` — `cand_dir[4]` → `_maze_cand_dir[4]`
+  - `engine.cyr` — the three 16-byte `timespec`s → `_engine_ts[2]` (`engine_tick_begin`), `_engine_now_ts[2]` (`engine_get_time_ns`), `_engine_sleep_ts[2]` (`engine_tick_wait`)
+
+  A single shared static is safe at each site: none of the five functions recurses or runs from a signal handler. The `maze_generate` candidate list is the only one written inside a loop, and it is refilled from index 0 on every iteration and read only below `cand_count`, with the backtracker iterative over an explicit `_maze_stack` rather than recursive.
+- **Menu and title-card high scores rendered in the wrong place and clobbered the menu frame.** This was the `draw_number` site above, and it was *live*, not latent — the [0.6.2] note below was wrong to call it dormant. Whenever `scores.dat` held a non-zero high score, the 64-byte write through the one-slot `digits` reservation corrupted `draw_number`'s own frame: the digits were drawn at the top-right corner instead of beside their menu row, and the menu's top-right corner bracket was overdrawn. It escaped every check because `screenshots/*.png` were captured with no `scores.dat` present, so every `draw_number` call took the `num == 0` early return and never touched the array. With the fix, the corner bracket is byte-identical to the committed art again and scores render beside their rows.
+
+### Notes
+- **`input.cyr`'s `var buf[4]` is deliberately left as a local.** It is the one function-local array that is safe under the one-slot reservation: every read is a 1-byte `SYS_READ` into `&buf` and every load is `load8(&buf)` at offset 0, so nothing past the reserved slot is ever touched. A comment now records why, so the next sweep does not have to re-derive it.
+- **Static data 253,016 → 253,160 bytes** (+144) and binary 393,752 → 393,896. The growth is exactly the five relocated arrays: 8×8 + 4×8 + 3×(2×8). No new game code.
+- Verified on the pinned toolchain: clean `cyrius deps` + build, `cyrius test tests/encom-hits.tcyr` 13 passed / 0 failed, and `--ppm` rendering all 14 screens at 320×240 (splash 230,415 bytes).
+- **Rendering is unchanged where it was already correct.** With `scores.dat` moved aside — the condition the committed screenshots were captured under — all 14 rendered frames are `magick compare -metric AE` = 0 against `screenshots/*.png`, and byte-identical to the pre-change build. The only frames that differ from the pre-change build are the five that draw a non-zero number (`menu` and the four title cards whose game has a high score), and there the new output is the correct one.
+- **The maze generator is behaviourally identical.** `maze_generate` was checksummed over its full wall array across 200 seeds and every supported width/height pairing, pre-change versus post-change: identical throughout. That site, and the three `engine.cyr` timespecs, were genuinely latent — the smashed slots happened to be dead.
+
 ## [0.6.2] — 2026-08-31
 
 Toolchain and dependency refresh onto Cyrius 6.5.36. No game-logic changes —
@@ -25,7 +43,9 @@ correction.
 - **The 6.0.x constant-fold workaround is no longer required, and is retained anyway.** The chained `enum * enum * literal` mis-fold that forced `SCREEN_W * (SCREEN_H * 4)` in `src/engine.cyr` (×3) and `src/draw.cyr` (×1) was fixed upstream in Cyrius 6.1.37 — same root cause, same `320*200*4` shape, filed by cyrius-doom. Verified on 6.5.36: both the chained and right-nested groupings fold to 307200. The four sites are unchanged; only their `NOTE:` comments were updated so they no longer imply the current toolchain needs the grouping.
 - **Binary size 367,856 → 393,752 bytes** (+25,896, ~7%). This is the larger 6.5.36 stdlib riding along as dead code — unreachable-function count went 87 → 207 — not new game code. Static data grew 251,208 → 253,016 bytes.
 - Verified on the pinned toolchain: clean build, `cyrius test tests/encom-hits.tcyr` 13 passed / 0 failed, and `--ppm` rendering all 14 screens at 320×240 (splash 230,415 bytes).
-- **Known issue, pre-existing and not introduced here** — a *function-local* `var X[N]` reserves a single 8-byte stack slot on this toolchain regardless of `N`, while file-scope arrays correctly reserve N slots. Five sites index past that one slot via `store64(&X + i*8, …)`: `digits[8]` in `main.cyr` `draw_number`, `cand_dir[4]` in `grid.cyr`, and the `ts[2]`/`ts[2]`/`sleep_ts[2]` timespecs in `engine.cyr`. An isolated reproducer using the same idiom segfaults; encom's own frames survive it and render correctly, so this is latent rather than live. Tracked as a 0.7→0.9 hardening item: move them to file-scope `.bss` like `_ai_*`.
+- **Known issue, pre-existing and not introduced here — since fixed, see [Unreleased].** A *function-local* `var X[N]` reserves a single 8-byte stack slot on this toolchain regardless of `N`, while file-scope arrays correctly reserve N slots. Five sites index past that one slot via `store64(&X + i*8, …)`: `digits[8]` in `main.cyr` `draw_number`, `cand_dir[4]` in `grid.cyr`, and the `ts[2]`/`ts[2]`/`sleep_ts[2]` timespecs in `engine.cyr`. An isolated reproducer using the same idiom segfaults.
+
+  The assessment recorded here — "encom's own frames survive it and render correctly, so this is latent rather than live" — was wrong for the `draw_number` site, and the reason it looked correct is worth keeping. `screenshots/*.png` were all captured with no `scores.dat` in the working directory, so every `draw_number` call hit the `num == 0` early return and the 8-slot array was never written. Restore a `scores.dat` with a non-zero high score and the menu and title cards visibly corrupt. The `grid.cyr` and `engine.cyr` sites were latent as described. Fixed in [Unreleased] by moving all five to file-scope `.bss` like `_ai_*`.
 
 ## [0.6.1] — 2026-06-03
 

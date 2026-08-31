@@ -176,19 +176,24 @@ fn draw_text(fb, text, x, y, color, scale) {
     return 0;
 }
 
+# Digit scratch for draw_number — must be file-scope: a function-local
+# `var X[N]` reserves only one 8-byte slot, so writing 8 slots through it
+# would smash the frame. draw_number does not recurse (it only calls
+# draw_char), so a single static is safe.
+var _draw_digits[8];
+
 fn draw_number(fb, num, x, y, color, scale) {
     if (num == 0) {
         draw_char(fb, 48, x, y, color, scale);
         return 0;
     }
-    var digits[8];
     var count = 0;
     var n = num;
     if (n < 0) { n = 0 - n; }
     while (n > 0) {
         if (count >= 8) { n = 0; }
         else {
-            store64(&digits + count * 8, n % 10);
+            store64(&_draw_digits + count * 8, n % 10);
             count = count + 1;
             n = n / 10;
         }
@@ -196,7 +201,7 @@ fn draw_number(fb, num, x, y, color, scale) {
     var i = count - 1;
     var cx = x;
     while (i >= 0) {
-        var d = load64(&digits + i * 8);
+        var d = load64(&_draw_digits + i * 8);
         draw_char(fb, 48 + d, cx, y, color, scale);
         cx = cx + scale * 4;
         i = i - 1;

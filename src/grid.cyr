@@ -64,6 +64,13 @@ fn _maze_push(x, y) {
     return 0;
 }
 
+# Unvisited-neighbour candidate list for maze_generate — must be file-scope:
+# a function-local `var X[N]` reserves only one 8-byte slot, so writing 4 slots
+# through it would smash the frame. Refilled from index 0 on every iteration of
+# the backtracker loop and read only below cand_count, and the generator is
+# iterative (explicit _maze_stack, no recursion), so one static is safe.
+var _maze_cand_dir[4];
+
 # Generate a perfect maze using iterative backtracker
 fn maze_generate(w, h, seed) {
     _maze_w = w;
@@ -91,31 +98,30 @@ fn maze_generate(w, h, seed) {
         var cy = load64(&_maze_stack_y + (_maze_stack_top - 1) * 8);
 
         # Find unvisited neighbors
-        # Store candidates in a small array, pick random
-        var cand_dir[4];
+        # Store candidates in _maze_cand_dir, pick random
         var cand_count = 0;
 
         if (cy > 0) {
             if (_maze_vis_get(cx, cy - 1) == 0) {
-                store64(&cand_dir + cand_count * 8, 0);
+                store64(&_maze_cand_dir + cand_count * 8, 0);
                 cand_count = cand_count + 1;
             }
         }
         if (cy < h - 1) {
             if (_maze_vis_get(cx, cy + 1) == 0) {
-                store64(&cand_dir + cand_count * 8, 1);
+                store64(&_maze_cand_dir + cand_count * 8, 1);
                 cand_count = cand_count + 1;
             }
         }
         if (cx < w - 1) {
             if (_maze_vis_get(cx + 1, cy) == 0) {
-                store64(&cand_dir + cand_count * 8, 2);
+                store64(&_maze_cand_dir + cand_count * 8, 2);
                 cand_count = cand_count + 1;
             }
         }
         if (cx > 0) {
             if (_maze_vis_get(cx - 1, cy) == 0) {
-                store64(&cand_dir + cand_count * 8, 3);
+                store64(&_maze_cand_dir + cand_count * 8, 3);
                 cand_count = cand_count + 1;
             }
         }
@@ -123,7 +129,7 @@ fn maze_generate(w, h, seed) {
         if (cand_count > 0) {
             # Pick random neighbor
             var pick = _maze_rand() % cand_count;
-            var dir = load64(&cand_dir + pick * 8);
+            var dir = load64(&_maze_cand_dir + pick * 8);
 
             # Carve passage
             _maze_carve(cx, cy, dir);

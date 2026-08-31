@@ -91,6 +91,9 @@ fn input_poll() {
     memset(&_key_state, 0, KEY_COUNT * 8);
 
     # Read all available bytes from stdin (non-blocking)
+    # Safe as a local despite the one-slot reservation for function-local
+    # arrays: every read is 1 byte and every load is load8(&buf) at offset 0,
+    # so nothing is ever touched past the reserved slot.
     var buf[4];
     var n = syscall(SYS_READ, 0, &buf, 1);
 

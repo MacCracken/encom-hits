@@ -121,7 +121,7 @@ The room before 1.0.0. No new games — confidence work.
 |---|------|--------|-------|
 | 1 | Full hands-on play-test pass (all 6 games, real `/dev/fb0`) | Pending | Live input/feel/difficulty/frame-pacing — the one thing headless `--ppm` can't cover |
 | 2 | Bug audit + fixes | Pending | Triage anything play-testing surfaces |
-| 2a | Function-local array sizing | Pending | A function-local `var X[N]` reserves ONE 8-byte slot, not `N`. Five sites index past it via `store64(&X + i*8, …)`: `main.cyr` `digits[8]`, `grid.cyr` `cand_dir[4]`, `engine.cyr` `ts[2]` ×2 + `sleep_ts[2]`. Renders correctly today but smashes adjacent frame slots; move them to file-scope `.bss` like `_ai_*` |
+| 2a | Function-local array sizing | Done | A function-local `var X[N]` reserves ONE 8-byte slot, not `N`. All five sites that indexed past it via `store64(&X + i*8, …)` are now file-scope `.bss` like `_ai_*`: `_draw_digits[8]` (`main.cyr`), `_maze_cand_dir[4]` (`grid.cyr`), `_engine_ts[2]` / `_engine_now_ts[2]` / `_engine_sleep_ts[2]` (`engine.cyr`). The `draw_number` site was **not** benign as previously recorded — it corrupted the menu and title cards whenever `scores.dat` held a non-zero score; the committed screenshots hid it by being captured with no `scores.dat`, so every call took the `num == 0` early return. `input.cyr` `buf[4]` stays a local (1-byte reads at offset 0 only). +144 bytes static; renders byte-identical where it was already correct, and maze output identical across 200 seeds |
 | 3 | Deep security audit | Pending | Re-audit input parsing, save-file I/O, bounds — beyond the initial 7-fix pass |
 | 4 | Cross-target build check | Pending | `--aarch64` / other targets if in scope |
 
@@ -147,4 +147,4 @@ First public tag — ships once the 0.7→0.9 hardening clears.
 
 ---
 
-*Last Updated: 2026-06-03*
+*Last Updated: 2026-08-31*
