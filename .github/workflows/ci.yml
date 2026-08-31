@@ -46,18 +46,18 @@ jobs:
           echo "${{ github.event.repository.name }}: $(wc -c < build/${{ github.event.repository.name }}) bytes"
 
       - name: Lint
-        # Soft gate (matches cyrius-doom): runs the linter for visibility but
-        # does not fail on style warnings. A few tank-input one-liners exceed
-        # the 120-char guide; wrapping them is part of the 0.7→0.9 hardening,
-        # after which this can be tightened to patra's hard "any warn fails".
+        # Soft gate: runs the linter for visibility but does not fail on style
+        # warnings. Eight tank-input one-liners in src/main.cyr exceed the
+        # 120-char guide; wrapping them is part of the 0.7→0.9 hardening, after
+        # which this can be tightened to a hard "any warn fails".
         run: |
           for f in src/*.cyr; do cyrius lint "$f"; done
 
       - name: Test
-        # Explicit .tcyr path — the 6.0.x toolchain's bare `cyrius test` is
-        # singular (fuller tests/ auto-discovery lands later in the 6.0.x
-        # line). The grep gate fails the job unless the summary reports 0
-        # failures.
+        # Explicit .tcyr path. Bare `cyrius test` now recursively auto-discovers
+        # every .tcyr under tests/ (and `cyrius tests` does the same), but the
+        # explicit path keeps the gate pinned to the one suite this job asserts
+        # on. The grep gate fails the job unless the summary reports 0 failures.
         run: |
           cyrius test tests/encom-hits.tcyr 2>&1 | tee /tmp/test_output
           tail -1 /tmp/test_output | grep ', 0 failed'
@@ -128,16 +128,17 @@ jobs:
           fi
           echo "OK: no raw execve in src/"
 
-      - name: No oversized stack buffers (>= 64KB)
-        # var name[N] is N BYTES; a stack buffer >= 64KB risks a guard-page
-        # smash. Flags any literal-sized stack buffer at or above 65536.
-        # (encom's large arrays — _ai_*[4800], lc_grid, etc. — are file-scope
-        # statics in .bss, not stack frames, and well under this bound.)
+      - name: No oversized buffers (>= 64KB)
+        # On the pinned toolchain a file-scope `var name[N]` reserves N SLOTS
+        # (N*8 bytes) in .bss — not N bytes — so the 64KB bound is N >= 8192,
+        # not N >= 65536. Flags any literal-sized array at or above that.
+        # (encom's largest are _ai_*[4800] = 38,400 bytes and lc_grid, all
+        # file-scope statics in .bss rather than stack frames, well under it.)
         run: |
-          BIG=$(grep -rnoE 'var [A-Za-z_][A-Za-z0-9_]*\[[0-9]+\]' src/ | awk -F'[][]' '$2+0 >= 65536')
+          BIG=$(grep -rnoE 'var [A-Za-z_][A-Za-z0-9_]*\[[0-9]+\]' src/ | awk -F'[][]' '$2+0 >= 8192')
           if [ -n "$BIG" ]; then
-            echo "::error::stack buffer >= 64KB in src/:"
+            echo "::error::array >= 64KB (8192 slots) in src/:"
             echo "$BIG"
             exit 1
           fi
-          echo "OK: no stack buffers >= 64KB in src/"
+          echo "OK: no arrays >= 64KB in src/"

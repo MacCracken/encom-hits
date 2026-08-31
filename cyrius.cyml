@@ -5,7 +5,7 @@ description = "ENCOM's Hits — retro arcade game collection in Cyrius. Six game
 license = "GPL-3.0-only"
 repository = "https://github.com/MacCracken/encom-hits"
 language = "cyrius"
-cyrius = "6.0.52"
+cyrius = "6.5.36"
 
 [build]
 entry = "src/main.cyr"
@@ -17,10 +17,16 @@ output = "build/encom-hits"
 # Same retro-port-in-Cyrius pattern as cyrius-doom / cyrius-polyomino / cyrius-bb.
 #
 # The collection defines its own SYS_* enum (src/engine.cyr) and calls the
-# `syscall` builtin directly, so no `syscalls` module is needed. The runtime
-# surface is deliberately tiny: alloc (allocation) + string (memcpy/memset/
-# strlen/println). Every glyph is hand-rendered via the 3x5 bitmap font, so
-# the game code itself never touches the variadic formatter.
+# `syscall` builtin directly, so `syscalls` is not listed here. It is vendored
+# anyway on the 6.5.x line: since 6.2.38 `assert` includes lib/syscalls.cyr and
+# `alloc` includes lib/atomic.cyr, so the transitive closure of the four modules
+# below is 17 files (was 9 on 6.0.52). The stdlib SYS_* / O_* constants that
+# arrive with it duplicate names encom already declares, but every colliding
+# value is identical and duplicate enum constants are a warn-only guardrail, so
+# the build stays clean. The runtime surface encom actually calls is still tiny:
+# alloc (allocation) + string (memcpy/memset/strlen/println). Every glyph is
+# hand-rendered via the 3x5 bitmap font, so the game code itself never touches
+# the variadic formatter.
 #
 # `assert` backs the tcyr unit suite and pulls `fmt` transitively (it prints
 # assertion counts via fmt_int); `fmt`'s variadic path in turn references
@@ -35,8 +41,15 @@ stdlib = ["string", "alloc", "vec", "assert"]
 # Earmarked external deps — dormant until their milestone, kept commented so
 # the build stays warning-free (an unused dep just adds link warnings + weight).
 #
-# vani — audio device I/O (MCP Voice phase). Cyrius-native; cyrius-doom pins 0.9.4.
+# vani — audio device I/O (MCP Voice phase). Cyrius-native; latest tag 1.2.2.
+# Note the route below is NOT what the sister projects settled on: none of them
+# resolves vani as a git dep any more. cyrius-doom, cyrius-polyomino and
+# cyrius-bb each commit the single-file `core` profile (vani's
+# dist/vani-core.cyr) under vendor/ instead, because resolving vani as a git dep
+# drags its whole manifest tree into the link and DCE cannot prune a vendored
+# module. Revisit which route applies when MCP Voice actually starts; until then
+# this block stays commented and unresolved.
 # [deps.vani]
 # git = "https://github.com/MacCracken/vani.git"
-# tag = "0.9.4"
+# tag = "1.2.2"
 # modules = ["dist/vani-core.cyr"]

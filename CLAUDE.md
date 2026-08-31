@@ -6,7 +6,7 @@
 
 - **Type**: Standalone game binary (Cyrius-native)
 - **License**: GPL-3.0-only
-- **Version**: SemVer, currently 0.6.0 (pre-1.0; 0.6.x→0.9.x for hardening before 1.0.0 release)
+- **Version**: SemVer, currently 0.6.2 (pre-1.0; 0.6.x→0.9.x for hardening before 1.0.0 release)
 - **Version file**: `VERSION` at repo root
 - **Genesis repo**: [agnosticos](https://github.com/MacCracken/agnosticos)
 - **Sister projects**: [cyrius-doom](https://github.com/MacCracken/cyrius-doom) (3D BSP), [cyrius-nba-jam](https://github.com/MacCracken/cyrius-nba-jam) (2D sprites)

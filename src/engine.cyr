@@ -80,8 +80,9 @@ var _ppm_buf = 0;
 
 fn engine_init() {
     # Allocate BGRA framebuffer: 320 * 240 * 4 = 307200 bytes
-    # NOTE: right-nest the grouping — cyrius 6.0.x mis-folds a chained
-    # `enum * enum * literal` (drops the first factor → 960 not 307200).
+    # NOTE: the right-nested grouping worked around a cyrius 6.0.x mis-fold of a
+    # chained `enum * enum * literal` (it dropped the first factor → 960, not
+    # 307200). Fixed upstream in cyrius 6.1.37; kept as-is on the pinned 6.5.36.
     _fb_size = SCREEN_W * (SCREEN_H * 4);
     _fb_ptr = alloc(_fb_size);
 

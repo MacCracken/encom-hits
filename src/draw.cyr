@@ -119,9 +119,10 @@ fn draw_filled_rect(fb, x, y, w, h, color) {
 
 # Clear the framebuffer to black.
 fn draw_clear(fb) {
-    # NOTE: right-nest the factor grouping — cyrius 6.0.x mis-folds a
-    # chained `enum * enum * literal` (drops the first factor), so
-    # `SCREEN_W * (SCREEN_H * 4)` is required to get 307200, not 960.
+    # NOTE: the right-nested grouping worked around a cyrius 6.0.x mis-fold of
+    # a chained `enum * enum * literal` (it dropped the first factor → 960, not
+    # 307200). Fixed upstream in cyrius 6.1.37; both groupings fold correctly on
+    # the pinned 6.5.36. Kept as-is because it reads fine and costs nothing.
     memset(fb, 0, SCREEN_W * (SCREEN_H * 4));
     return 0;
 }

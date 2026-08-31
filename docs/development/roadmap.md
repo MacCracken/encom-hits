@@ -1,6 +1,6 @@
 # ENCOM's Hits — Development Roadmap
 
-> **Status**: v0.6.0 (Cyrius 6.0.52 toolchain) — pre-1.0 hardening | **Last Updated**: 2026-06-03
+> **Status**: v0.6.2 (Cyrius 6.5.36 toolchain) — pre-1.0 hardening | **Last Updated**: 2026-08-31
 
 ---
 
@@ -74,7 +74,7 @@ The collection.
 | 6 | High score persistence | Done | scores.dat binary file (4 x i64), read on startup, write on new best |
 | 7 | Transitions | Done | Title card serves as visual break between menu and game |
 
-## v0.6.0 — Cyrius 6.0.x Migration (current)
+## v0.6.0 — Cyrius 6.0.x Migration
 
 Onto the modern toolchain + ready for a first tag.
 
@@ -87,6 +87,32 @@ Onto the modern toolchain + ready for a first tag.
 
 **Exit criteria**: clean build + green CI on the 6.0.52 toolchain, tag-able. **Met.**
 
+## v0.6.1 — Framebuffer Display Fix
+
+Made the games render correctly on a real Linux console instead of tiling into
+the top band of the panel.
+
+| # | Item | Status | Notes |
+|---|------|--------|-------|
+| 1 | Probe real panel geometry | Done | `FBIOGET_VSCREENINFO` / `FBIOGET_FSCREENINFO` ioctls in `engine_init` |
+| 2 | Integer-scale + center the surface | Done | New `engine_blit`; honors the panel's `line_length` pitch and bit depth (32bpp BGRX, 16bpp RGB565) |
+| 3 | Graceful degradation | Done | PPM fallback unchanged when `/dev/fb0` is unavailable |
+
+**Exit criteria**: correct full-screen render on real hardware. **Met.**
+
+## v0.6.2 — Cyrius 6.5.36 Toolchain (current)
+
+Toolchain + dependency refresh. No game-logic changes.
+
+| # | Item | Status | Notes |
+|---|------|--------|-------|
+| 1 | Toolchain pin 6.0.52 → 6.5.36 | Done | `cyrius.cyml` `[package].cyrius`; clears the `cycc`/manifest drift warning |
+| 2 | Vendored stdlib refreshed | Done | `cyrius deps` closure grew 9 → 17 files (`assert` now includes `syscalls`, `alloc` includes `atomic`) |
+| 3 | Dormant `[deps.vani]` pin refreshed | Done | 0.9.4 → 1.2.2, and the false "cyrius-doom pins 0.9.4" note corrected |
+| 4 | Doc/version sweep | Done | README toolchain floor + line counts, CLAUDE.md version, this roadmap, CHANGELOG |
+
+**Exit criteria**: clean build + 13/13 tests + all 14 `--ppm` frames on 6.5.36. **Met.**
+
 ## v0.7.0 → v0.9.0 — Pre-1.0 Hardening
 
 The room before 1.0.0. No new games — confidence work.
@@ -95,6 +121,7 @@ The room before 1.0.0. No new games — confidence work.
 |---|------|--------|-------|
 | 1 | Full hands-on play-test pass (all 6 games, real `/dev/fb0`) | Pending | Live input/feel/difficulty/frame-pacing — the one thing headless `--ppm` can't cover |
 | 2 | Bug audit + fixes | Pending | Triage anything play-testing surfaces |
+| 2a | Function-local array sizing | Pending | A function-local `var X[N]` reserves ONE 8-byte slot, not `N`. Five sites index past it via `store64(&X + i*8, …)`: `main.cyr` `digits[8]`, `grid.cyr` `cand_dir[4]`, `engine.cyr` `ts[2]` ×2 + `sleep_ts[2]`. Renders correctly today but smashes adjacent frame slots; move them to file-scope `.bss` like `_ai_*` |
 | 3 | Deep security audit | Pending | Re-audit input parsing, save-file I/O, bounds — beyond the initial 7-fix pass |
 | 4 | Cross-target build check | Pending | `--aarch64` / other targets if in scope |
 

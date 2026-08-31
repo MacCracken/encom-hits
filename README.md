@@ -25,7 +25,7 @@ cyrius build src/main.cyr build/encom-hits
 ./build/encom-hits
 ```
 
-Requires Cyrius >= 6.0.52.
+Requires Cyrius >= 6.5.36.
 
 ## Screenshots
 
@@ -57,13 +57,13 @@ Neon wireframe on black. No textures, no sprites, no assets. Every pixel is a co
 
 ## Architecture
 
-3,872 lines across 14 source files. Shared engine (framebuffer, drawing, input, glow, AI, grid) with per-game modules.
+4,016 lines across 14 source files. Shared engine (framebuffer, drawing, input, glow, AI, grid) with per-game modules.
 
 ```
 src/
-  main.cyr          — Entry, menu, bitmap text, splash, scoring, --ppm mode (1,084)
-  engine.cyr        — Framebuffer, /dev/fb0 + PPM output, frame timing (160)
-  draw.cyr          — Bresenham line, hline/vline, rect, pixel (138)
+  main.cyr          — Entry, menu, bitmap text, splash, scoring, --ppm mode (1,085)
+  engine.cyr        — Framebuffer, /dev/fb0 + PPM output, frame timing (300)
+  draw.cyr          — Bresenham line, hline/vline, rect, pixel (141)
   input.cyr         — Terminal raw mode, keyboard state, escape sequences (169)
   glow.cyr          — Additive neon bloom effect (97)
   ai.cyr            — A* (open grid + maze-aware), chase, LC lookahead (412)
