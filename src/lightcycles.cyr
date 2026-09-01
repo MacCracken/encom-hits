@@ -67,43 +67,81 @@ fn lc_move_player(px, py, dir) {
 }
 
 fn lc_update() {
+    # Resolve both cycles simultaneously from a single pre-move snapshot.
+    #
+    # Through 0.6.3 P1 was updated in full before P2, and a cycle's HEAD cell was
+    # never written into lc_grid — only the cell it vacated. So a head-on
+    # approach resolved as P1 stepping through P2's head (that cell reads 0) and
+    # P2 then dying on the trail P1 had just laid behind itself: P1 always won,
+    # and the explicit same-cell test below never fired because the heads swapped
+    # rather than coincided. A human could ram the AI head-on and win every time.
+    var ox1 = lc_p1_x;
+    var oy1 = lc_p1_y;
+    var ox2 = lc_p2_x;
+    var oy2 = lc_p2_y;
+
+    var nx1 = ox1;
+    var ny1 = oy1;
     if (lc_p1_alive) {
-        var packed = lc_move_player(lc_p1_x, lc_p1_y, lc_p1_dir);
-        var nx = packed / 1000;
-        var ny = packed % 1000;
-
-        if (lc_cell(nx, ny) != 0) {
-            lc_p1_alive = 0;
-        } else {
-            _lc_grid_set(lc_p1_x, lc_p1_y, 1);
-            lc_p1_x = nx;
-            lc_p1_y = ny;
-        }
+        var packed1 = lc_move_player(ox1, oy1, lc_p1_dir);
+        nx1 = packed1 / 1000;
+        ny1 = packed1 % 1000;
     }
 
+    var nx2 = ox2;
+    var ny2 = oy2;
     if (lc_p2_alive) {
-        var packed = lc_move_player(lc_p2_x, lc_p2_y, lc_p2_dir);
-        var nx = packed / 1000;
-        var ny = packed % 1000;
-
-        if (lc_cell(nx, ny) != 0) {
-            lc_p2_alive = 0;
-        } else {
-            _lc_grid_set(lc_p2_x, lc_p2_y, 2);
-            lc_p2_x = nx;
-            lc_p2_y = ny;
-        }
+        var packed2 = lc_move_player(ox2, oy2, lc_p2_dir);
+        nx2 = packed2 / 1000;
+        ny2 = packed2 % 1000;
     }
 
-    # Head-on collision: both players on same cell = both die
+    # Both destination tests read the SAME pre-move grid (walls, boundaries and
+    # existing trails); neither can see the other's move this tick.
+    var die1 = 0;
+    var die2 = 0;
+    if (lc_p1_alive) {
+        if (lc_cell(nx1, ny1) != 0) { die1 = 1; }
+    }
+    if (lc_p2_alive) {
+        if (lc_cell(nx2, ny2) != 0) { die2 = 1; }
+    }
+
     if (lc_p1_alive) {
         if (lc_p2_alive) {
-            if (lc_p1_x == lc_p2_x) {
-                if (lc_p1_y == lc_p2_y) {
-                    lc_p1_alive = 0;
-                    lc_p2_alive = 0;
-                }
+            # Both entering the same cell: mutual kill.
+            if (nx1 == nx2) {
+                if (ny1 == ny2) { die1 = 1; die2 = 1; }
             }
+            # Entering the cell the opponent is vacating — the opponent lays its
+            # trail there this tick, so it is a wall by the time you arrive.
+            # When both do it they are passing through each other: the classic
+            # head-on, and now a draw rather than a win for whoever moved first.
+            if (nx1 == ox2) {
+                if (ny1 == oy2) { die1 = 1; }
+            }
+            if (nx2 == ox1) {
+                if (ny2 == oy1) { die2 = 1; }
+            }
+        }
+    }
+
+    if (lc_p1_alive) {
+        if (die1 == 1) {
+            lc_p1_alive = 0;
+        } else {
+            _lc_grid_set(ox1, oy1, 1);
+            lc_p1_x = nx1;
+            lc_p1_y = ny1;
+        }
+    }
+    if (lc_p2_alive) {
+        if (die2 == 1) {
+            lc_p2_alive = 0;
+        } else {
+            _lc_grid_set(ox2, oy2, 2);
+            lc_p2_x = nx2;
+            lc_p2_y = ny2;
         }
     }
 

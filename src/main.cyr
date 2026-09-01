@@ -492,7 +492,7 @@ fn _title_start_game() {
     game_new_best = 0;
     if (current_game == GAME_LIGHTCYCLES) { lc_init(); }
     if (current_game == GAME_GRIDBUGS) { gb_init(1); }
-    if (current_game == GAME_TANKS) { tk_init(engine_frame_count()); }
+    if (current_game == GAME_TANKS) { tk_init(engine_frame_count()); tk_p1_pending = DIR_NONE; }
     if (current_game == GAME_MCPCONE) { mcp_init(); }
     if (current_game == GAME_INTERCEPTORS) { int_init(); }
     if (current_game == GAME_DISCS) { disc_init(); }
@@ -657,19 +657,43 @@ fn gb_game_tick(fb) {
 }
 
 # Battle Tanks input handling
+# Latched move request, applied once per game tick by tk_apply_pending_move.
+var tk_p1_pending = DIR_NONE;
+
 fn tk_handle_input() {
     if (tk_p1_alive) {
-        var moved = 0;
-        if (input_key(KEY_W) == 1) { tk_p1_dir = DIR_UP; if (tk_try_move(tk_p1_x, tk_p1_y, DIR_UP)) { tk_p1_y = tk_p1_y - 1; } moved = 1; }
-        if (input_key(KEY_S) == 1) { tk_p1_dir = DIR_DOWN; if (tk_try_move(tk_p1_x, tk_p1_y, DIR_DOWN)) { tk_p1_y = tk_p1_y + 1; } moved = 1; }
-        if (input_key(KEY_A) == 1) { tk_p1_dir = DIR_LEFT; if (tk_try_move(tk_p1_x, tk_p1_y, DIR_LEFT)) { tk_p1_x = tk_p1_x - 1; } moved = 1; }
-        if (input_key(KEY_D) == 1) { tk_p1_dir = DIR_RIGHT; if (tk_try_move(tk_p1_x, tk_p1_y, DIR_RIGHT)) { tk_p1_x = tk_p1_x + 1; } moved = 1; }
-        if (input_key(KEY_UP) == 1) { tk_p1_dir = DIR_UP; if (tk_try_move(tk_p1_x, tk_p1_y, DIR_UP)) { tk_p1_y = tk_p1_y - 1; } }
-        if (input_key(KEY_DOWN) == 1) { tk_p1_dir = DIR_DOWN; if (tk_try_move(tk_p1_x, tk_p1_y, DIR_DOWN)) { tk_p1_y = tk_p1_y + 1; } }
-        if (input_key(KEY_LEFT) == 1) { tk_p1_dir = DIR_LEFT; if (tk_try_move(tk_p1_x, tk_p1_y, DIR_LEFT)) { tk_p1_x = tk_p1_x - 1; } }
-        if (input_key(KEY_RIGHT) == 1) { tk_p1_dir = DIR_RIGHT; if (tk_try_move(tk_p1_x, tk_p1_y, DIR_RIGHT)) { tk_p1_x = tk_p1_x + 1; } }
+        # The turret direction still updates every frame so aiming stays
+        # responsive, but the cell move is only LATCHED here. Through 0.6.3 the
+        # move happened per frame while the whole simulation — AI movement and
+        # every projectile step — advanced once per tk_tick_rate (4) frames, so
+        # holding a direction moved the tank at the terminal's key-repeat rate
+        # (~25-30 cells/s) against a 15 cells/s world: the player outran the AI
+        # and could literally drive away from an incoming shot. A two-key frame
+        # also produced a diagonal, because each block moved independently.
+        if (input_key(KEY_W) == 1)     { tk_p1_dir = DIR_UP;    tk_p1_pending = DIR_UP; }
+        if (input_key(KEY_S) == 1)     { tk_p1_dir = DIR_DOWN;  tk_p1_pending = DIR_DOWN; }
+        if (input_key(KEY_A) == 1)     { tk_p1_dir = DIR_LEFT;  tk_p1_pending = DIR_LEFT; }
+        if (input_key(KEY_D) == 1)     { tk_p1_dir = DIR_RIGHT; tk_p1_pending = DIR_RIGHT; }
+        if (input_key(KEY_UP) == 1)    { tk_p1_dir = DIR_UP;    tk_p1_pending = DIR_UP; }
+        if (input_key(KEY_DOWN) == 1)  { tk_p1_dir = DIR_DOWN;  tk_p1_pending = DIR_DOWN; }
+        if (input_key(KEY_LEFT) == 1)  { tk_p1_dir = DIR_LEFT;  tk_p1_pending = DIR_LEFT; }
+        if (input_key(KEY_RIGHT) == 1) { tk_p1_dir = DIR_RIGHT; tk_p1_pending = DIR_RIGHT; }
         if (input_key(KEY_SPACE) == 1) { tk_fire_shot(tk_p1_x, tk_p1_y, tk_p1_dir, 1); }
     }
+    return 0;
+}
+
+# Apply the latched request: exactly one cell, on one axis, per game tick.
+fn tk_apply_pending_move() {
+    var d = tk_p1_pending;
+    tk_p1_pending = DIR_NONE;
+    if (tk_p1_alive == 0) { return 0; }
+    if (d == DIR_NONE) { return 0; }
+    if (tk_try_move(tk_p1_x, tk_p1_y, d) == 0) { return 0; }
+    if (d == DIR_UP)    { tk_p1_y = tk_p1_y - 1; }
+    if (d == DIR_DOWN)  { tk_p1_y = tk_p1_y + 1; }
+    if (d == DIR_LEFT)  { tk_p1_x = tk_p1_x - 1; }
+    if (d == DIR_RIGHT) { tk_p1_x = tk_p1_x + 1; }
     return 0;
 }
 
@@ -684,6 +708,7 @@ fn tk_game_tick(fb) {
     if (tk_tick_counter >= tk_tick_rate) {
         tk_tick_counter = 0;
         if (tk_game_done == 0) {
+            tk_apply_pending_move();
             tk_update();
             if (tk_game_over() == 1) {
                 if (tk_winner() == 1) { game_score = 1000; }
@@ -736,16 +761,15 @@ fn mcp_game_tick(fb) {
         mcp_tick_counter = 0;
         if (mcp_game_done == 0) {
             mcp_update();
+            # Score: 100 per ring broken, +1000 only for reaching the core.
+            # A loss still banks the rings, so the high score varies with how
+            # far the run got instead of being a constant 1800.
             if (mcp_won == 1) {
-                # Score: 100 per ring broken + 1000 for win
-                var r = 0;
-                while (r < MCP_RINGS) {
-                    if (_mcp_ring_get(&mcp_ring_alive, r) == 0) {
-                        game_score = game_score + 100;
-                    }
-                    r = r + 1;
-                }
-                game_score = game_score + 1000;
+                game_score = mcp_rings_broken() * 100 + 1000;
+                scores_update(GAME_MCPCONE, game_score);
+                mcp_game_done = 1;
+            } elif (mcp_lost() == 1) {
+                game_score = mcp_rings_broken() * 100;
                 scores_update(GAME_MCPCONE, game_score);
                 mcp_game_done = 1;
             }
@@ -755,7 +779,11 @@ fn mcp_game_tick(fb) {
     mcp_render(fb);
 
     if (mcp_game_done == 1) {
-        draw_text(fb, "MCP DEFEATED", 64, 90, COLOR_GREEN, 3);
+        if (mcp_won == 1) {
+            draw_text(fb, "MCP DEFEATED", 64, 90, COLOR_GREEN, 3);
+        } else {
+            draw_text(fb, "DEREZZED", 96, 90, COLOR_RED, 3);
+        }
         draw_text(fb, "SCORE:", 100, 125, COLOR_DIM_BLUE, 2);
         draw_number(fb, game_score, 172, 125, COLOR_WHITE, 2);
         if (game_new_best == 1) {
@@ -844,6 +872,14 @@ fn disc_handle_input() {
     if (input_key(KEY_DOWN) == 1) { disc_p1_y = disc_p1_y + 3; }
     if (input_key(KEY_W) == 1) { disc_p1_y = disc_p1_y - 3; }
     if (input_key(KEY_S) == 1) { disc_p1_y = disc_p1_y + 3; }
+
+    # Clamp here, not only in disc_update: this handler runs every frame
+    # including after the match ends, but disc_update is gated on
+    # disc_game_done, so through 0.6.3 holding a movement key on the game-over
+    # screen walked the paddle off the arena. Matches how Interceptors bounds
+    # int_player_x in its own input handler.
+    if (disc_p1_y < disc_min_y()) { disc_p1_y = disc_min_y(); }
+    if (disc_p1_y > disc_max_y()) { disc_p1_y = disc_max_y(); }
     if (input_key(KEY_SPACE) == 1) {
         # Aim based on player position relative to center
         var aim = 0;

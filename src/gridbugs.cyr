@@ -27,7 +27,12 @@ var gb_tower_y = 0;
 
 # Level
 var gb_level = 0;
-var gb_score = 0;
+
+# NOTE: Grid Bugs has no module-owned score. main.cyr's gb_game_tick is the
+# single scoring authority (game_score += gb_level * 500 on reaching the
+# tower). Through 0.6.3 this module also kept a `gb_score` that was reset,
+# awarded +1000 for the same event, and never read by anything — so editing
+# the "obvious" award in here changed nothing that was displayed or persisted.
 
 # Helper: access connection array
 fn _gb_conn_get(x, y, dir) {
@@ -58,7 +63,6 @@ fn _gb_bug_set_alive(i, v) { store64(&gb_bug_alive + i * 8, v); return 0; }
 
 fn gb_init(level) {
     gb_level = level;
-    gb_score = 0;
     gb_player_alive = 1;
     gb_player_dir = DIR_NONE;
 
@@ -179,13 +183,6 @@ fn gb_update() {
             }
         }
         i = i + 1;
-    }
-
-    # Check if player reached I/O Tower
-    if (gb_player_x == gb_tower_x) {
-        if (gb_player_y == gb_tower_y) {
-            gb_score = gb_score + 1000;
-        }
     }
 
     return 0;

@@ -1,0 +1,97 @@
+# lightcycles-headon -- regression cover for order-dependent collision.
+#
+# Through 0.6.3 lc_update moved P1 in full before P2, and a cycle's head cell
+# was never written into lc_grid. A head-on therefore resolved as P1 passing
+# THROUGH P2's head and P2 dying on the trail P1 had just laid: P1 won every
+# symmetric head-on, so a human could ram the AI and win on demand. These
+# assertions pin the outcome to be symmetric and order-independent.
+
+# draw.cyr resolves lc_render's calls; the test exercises lc_update only.
+include "src/types.cyr"
+include "src/draw.cyr"
+include "src/lightcycles.cyr"
+
+fn place(x1, y1, d1, x2, y2, d2) {
+    memset(&lc_grid, 0, 4800 * 8);
+    lc_p1_x = x1; lc_p1_y = y1; lc_p1_dir = d1; lc_p1_alive = 1;
+    lc_p2_x = x2; lc_p2_y = y2; lc_p2_dir = d2; lc_p2_alive = 1;
+    return 0;
+}
+
+# Adjacent, closing head-on: the cycles swap cells. Both must die (a draw).
+fn test_headon_swap_is_a_draw(): i64 {
+    place(20, 30, DIR_RIGHT, 21, 30, DIR_LEFT);
+    lc_update();
+    assert_eq(lc_p1_alive, 0, "head-on swap kills P1");
+    assert_eq(lc_p2_alive, 0, "head-on swap kills P2");
+    assert_eq(lc_winner(), 0, "head-on swap is a draw, not a P1 win");
+    return 0;
+}
+
+# Two cells apart, closing: both step into the SAME middle cell. Both die.
+fn test_headon_same_cell_is_a_draw(): i64 {
+    place(20, 30, DIR_RIGHT, 22, 30, DIR_LEFT);
+    lc_update();
+    assert_eq(lc_p1_alive, 0, "same-cell head-on kills P1");
+    assert_eq(lc_p2_alive, 0, "same-cell head-on kills P2");
+    assert_eq(lc_winner(), 0, "same-cell head-on is a draw");
+    return 0;
+}
+
+# Mirror of the first case with the roles swapped. The outcome must not depend
+# on which cycle the update loop happens to touch first.
+fn test_headon_is_symmetric(): i64 {
+    place(21, 30, DIR_LEFT, 20, 30, DIR_RIGHT);
+    lc_update();
+    assert_eq(lc_p1_alive, 0, "mirrored head-on kills P1 too");
+    assert_eq(lc_p2_alive, 0, "mirrored head-on kills P2 too");
+    return 0;
+}
+
+# P1 drives into the cell P2 is vacating. P2 lays trail there this tick, so P1
+# dies; P2 drives away clean. Previously P1 sat inside P2's trail unharmed.
+fn test_driving_into_vacated_cell_kills(): i64 {
+    place(20, 30, DIR_RIGHT, 21, 30, DIR_DOWN);
+    lc_update();
+    assert_eq(lc_p1_alive, 0, "entering the vacated cell kills P1");
+    assert_eq(lc_p2_alive, 1, "P2 drives away unharmed");
+    assert_eq(lc_winner(), 2, "P2 wins that exchange");
+    return 0;
+}
+
+# Sanity: cycles running apart both survive and both lay trail behind them.
+fn test_diverging_both_survive(): i64 {
+    place(20, 30, DIR_LEFT, 60, 30, DIR_RIGHT);
+    lc_update();
+    assert_eq(lc_p1_alive, 1, "diverging P1 survives");
+    assert_eq(lc_p2_alive, 1, "diverging P2 survives");
+    assert_eq(lc_cell(20, 30), 1, "P1 left a trail in its old cell");
+    assert_eq(lc_cell(60, 30), 2, "P2 left a trail in its old cell");
+    return 0;
+}
+
+# A cycle still dies on the boundary and on an existing trail.
+fn test_wall_and_trail_still_kill(): i64 {
+    place(0, 30, DIR_LEFT, 60, 30, DIR_RIGHT);
+    lc_update();
+    assert_eq(lc_p1_alive, 0, "P1 dies on the left boundary");
+
+    place(20, 30, DIR_RIGHT, 60, 30, DIR_RIGHT);
+    _lc_grid_set(21, 30, 2);
+    lc_update();
+    assert_eq(lc_p1_alive, 0, "P1 dies on an existing trail");
+    return 0;
+}
+
+fn main(): i64 {
+    test_headon_swap_is_a_draw();
+    test_headon_same_cell_is_a_draw();
+    test_headon_is_symmetric();
+    test_driving_into_vacated_cell_kills();
+    test_diverging_both_survive();
+    test_wall_and_trail_still_kill();
+    return assert_summary();
+}
+
+var rc = main();
+syscall(60, rc);

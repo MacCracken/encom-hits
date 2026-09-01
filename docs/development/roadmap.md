@@ -1,6 +1,6 @@
 # ENCOM's Hits — Development Roadmap
 
-> **Status**: v0.6.3 (Cyrius 6.5.36 toolchain) — pre-1.0 hardening | **Last Updated**: 2026-08-31
+> **Status**: v0.7.0 (Cyrius 6.5.36 toolchain) — pre-1.0 hardening | **Last Updated**: 2026-08-31
 
 ---
 
@@ -113,7 +113,7 @@ Toolchain + dependency refresh. No game-logic changes.
 
 **Exit criteria**: clean build + 13/13 tests + all 14 `--ppm` frames on 6.5.36. **Met.**
 
-## v0.6.3 — P-1 Audit & Hardening (current)
+## v0.6.3 — P-1 Audit & Hardening
 
 Six-lens audit of `src/` (memory safety, security, correctness, performance,
 structure, robustness), every acted-on finding independently verified. Two games
@@ -133,17 +133,39 @@ were broken as designed; the display path could not hold 60fps on a normal monit
 
 **Exit criteria**: clean build + 27 assertions across 3 suites + all 14 `--ppm` frames, renders pixel-neutral except the MCP Cone fix. **Met.**
 
-## v0.7.0 → v0.9.0 — Pre-1.0 Hardening
+## v0.7.0 — Game Feel (current)
 
-The room before 1.0.0. No new games — confidence work.
+The six defects 0.6.3 deliberately held back, plus the paddle clamp from the
+same sweep. Each changes how a game *plays*, which is why they were separated
+from the correctness pass.
+
+| # | Item | Status | Notes |
+|---|------|--------|-------|
+| 1 | Battle Tanks movement tick-gating | Done | Input latches a direction; one cell on one axis per tick. Player was moving ~25-30 cells/s against a 15 cells/s world and outran its own shells |
+| 2 | Battle Tanks AI stops one cell short | Done | A* goal is the player's cell, so the AI arrived, froze, and hid the player under its own sprite |
+| 3 | Battle Tanks point-blank shots | Done | Both updaters advanced before testing, so the shot's own cell was a blind spot |
+| 4 | Light Cycles simultaneous resolution | Done | Head-on was decided by update order and always killed P2; now a draw. Covered by `tests/lightcycles-headon.tcyr` |
+| 5 | Interceptors between-wave freeze | Done | Only the enemy loop pauses now; bullets and collisions keep running |
+| 6 | MCP Cone lose condition | Done | Three attempts, DEREZZED card, score on rings broken so it is no longer a constant 1800. Lives drawn as pips |
+| 7 | Disc Arena paddle clamp | Done | Clamp moved into the input handler; bounds shared with `disc_update` |
+| 8 | Dead `gb_score` path removed | Done | `main.cyr` is the single scoring authority for Grid Bugs |
+| 9 | CI lint promoted to a hard gate | Done | The 8 long lines it tolerated went away with the Tanks input rewrite |
+
+**Exit criteria**: clean build + 52 assertions across 4 suites + all 14 `--ppm` frames + lint-clean. **Met** — but see the play-test item below; this release is the one that most needs it.
+
+## v0.7.x → v0.9.0 — Pre-1.0 Hardening (ongoing)
+
+The room before 1.0.0. No new games — confidence work. v0.7.0 above cleared
+the game-feel backlog; what remains is play-testing, the deep security pass and
+cross-target builds.
 
 | # | Item | Status | Notes |
 |---|------|--------|-------|
 | 1 | Full hands-on play-test pass (all 6 games, real `/dev/fb0`) | Pending | Live input/feel/difficulty/frame-pacing — the one thing headless `--ppm` can't cover |
 | 2 | Bug audit + fixes | Pending | Triage anything play-testing surfaces |
 | 2a | Function-local array sizing | Done | A function-local `var X[N]` reserves ONE 8-byte slot, not `N`. All five sites that indexed past it via `store64(&X + i*8, …)` are now file-scope `.bss` like `_ai_*`: `_draw_digits[8]` (`main.cyr`), `_maze_cand_dir[4]` (`grid.cyr`), `_engine_ts[2]` / `_engine_now_ts[2]` / `_engine_sleep_ts[2]` (`engine.cyr`). The `draw_number` site was **not** benign as previously recorded — it corrupted the menu and title cards whenever `scores.dat` held a non-zero score; the committed screenshots hid it by being captured with no `scores.dat`, so every call took the `num == 0` early return. `input.cyr` `buf[4]` stays a local (1-byte reads at offset 0 only). +144 bytes static; renders byte-identical where it was already correct, and maze output identical across 200 seeds |
-| 2b | Game-feel defects found in the 0.6.3 audit | Pending | Tanks player movement is not tick-gated (holding a direction outruns the AI *and* the player's own projectiles); Tanks AI paths onto the player's own cell and stops, hiding the player; Interceptors freezes every bullet in flight for ~1.5 s between waves; Light Cycles decides head-on collisions by update order, always killing P2; MCP Cone has no lose condition; `gb_score` is a dead second scoring path. Deliberately deferred — each wants play-testing alongside the fix |
-| 2c | Disc Arena difficulty re-balance | Pending | 0.6.3 made the AI actually dodge instead of walking into throws; the right dodge speed is a feel question the headless suite cannot answer |
+| 2b | Game-feel defects found in the 0.6.3 audit | Done | All six fixed in v0.7.0 — see that section above |
+| 2c | Difficulty tuning after the 0.7.0 behaviour changes | Pending | Three games changed how they play and none has been played since. Battle Tanks is the big one: the player now moves at the same 15 cells/s as the AI and its shells, which may want a different `tk_tick_rate` or a separate movement rate. MCP Cone's three attempts is a first guess, not a measured curve. Disc Arena's AI has been dodging since 0.6.3 and still has not been played |
 | 3 | Deep security audit | Pending | Input parsing, save-file I/O, bounds. 0.6.3 covered the framebuffer probe/blit, `O_NOFOLLOW` on created files, and the `scores.dat` read path; the escape-sequence parser in `input.cyr` is the main remaining surface |
 | 4 | Cross-target build check | Pending | `--aarch64` / other targets if in scope |
 
@@ -157,7 +179,7 @@ First public tag — ships once the 0.7→0.9 hardening clears.
 | 2 | Consistent visual identity (neon palette) | Done | All games use shared color palette |
 | 3 | Stable 60fps on all games | Done | Frame timing in engine.cyr, simple games |
 | 4 | Initial security pass (input, save files) | Done | See CHANGELOG — 7 fixes across input, memory, file I/O |
-| 5 | Play-test + bug + security audit cleared | Pending | Gated on v0.7→v0.9 above |
+| 5 | Play-test + bug + security audit cleared | Pending | Gated on v0.7.x→v0.9 above |
 
 ## Future (separate repos, separate scope)
 

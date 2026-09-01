@@ -4,6 +4,38 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.7.0] — 2026-08-31
+
+Game-feel release. The 0.6.3 audit surfaced six defects that were deliberately
+held back because each changes how a game plays rather than whether it is
+correct; this release takes all six, plus the paddle clamp left over from the
+same sweep. Minor rather than patch: Battle Tanks controls, Light Cycles
+head-on outcomes, and MCP Cone scoring all change observably.
+
+### Fixed
+- **Battle Tanks: the player outran the entire simulation.** `tk_handle_input` performed a full grid-cell move on every frame it saw a key flag, while AI movement and every projectile step advanced once per `tk_tick_rate` (4) frames. The tank therefore moved at the terminal's key-repeat rate — roughly 25–30 cells/s against a 15 cells/s world — so the player crossed the 16-cell maze in about half a second, could drive away from an incoming shot indefinitely (the shot literally could not catch up), and the AI could never close. A two-key frame also produced a diagonal step, because the four direction blocks each acted independently. Input now *latches* a direction (the turret still turns every frame, so aiming stays responsive) and `tk_apply_pending_move` applies exactly one cell on one axis inside the tick block.
+- **Battle Tanks: the AI walked onto the player and froze there.** Its A* goal is the player's exact cell, and `ai_find_direction_maze` returns `DIR_NONE` once start equals goal — so against a stationary player the AI arrived, stopped permanently, and (being drawn second) its orange square completely hid the player's cyan one. The AI now refuses the last step, staying adjacent and facing the player so it keeps firing down the right line.
+- **Battle Tanks: point-blank shots passed through their target.** Both projectile updaters advanced to the next cell *before* testing for a hit, so an enemy standing on the shot's own cell was a blind spot. Each updater now tests its current cell before advancing.
+- **Light Cycles: head-on collisions were decided by update order and always killed Player 2.** A cycle's head cell was never written into `lc_grid` — only the cell it vacated — and P1 was updated in full before P2. A symmetric head-on therefore resolved as P1 stepping *through* P2's head (that cell reads 0) and P2 then dying on the trail P1 had just laid; the explicit same-cell test never fired because the heads swapped rather than coincided. A human could ram the AI head-on and win on demand. `lc_update` now snapshots both cycles, tests both destinations against the same pre-move grid, and resolves three cases explicitly: same destination, cell-swap, and driving into the cell the opponent is vacating. A head-on is now a draw. This also closes the related case where P1 drove into a cell P2 was leaving and sat inside P2's fresh trail unharmed.
+- **Interceptors: every bullet froze for ~1.5 s between waves.** `int_update` returned early while the respawn timer ran, skipping the player-bullet, enemy-bullet and collision loops — but `int_render` kept drawing them, so bullets hung motionless in mid-air and then jumped back into motion. The 4-slot player-bullet pool could not drain either, so a player who kept firing filled it with frozen bullets and the fire button stopped responding. Only the enemy-movement loop is now held between waves; the respawn timer moved to the end of the update.
+- **MCP Cone could be won but never lost, and every completed run scored exactly 1800.** The module header has always promised "Get hit = death", but nothing ever cleared `mcp_player_alive`: a destroyed shot cost nothing and `mcp_fire` could retry on the very next frame, so mashing fire always eventually broke all 8 rings. A run now has three attempts, a barrier hit spends one, and running out ends the run with a DEREZZED card. Scoring moved onto `mcp_rings_broken()` — 100 per ring, +1000 only for reaching the core — so a loss still banks progress and the high score varies instead of being a constant. Remaining attempts are drawn as pips in the top-left, because a lose condition the player cannot see is worse than none.
+- **Disc Arena: the paddle walked off the arena on the game-over screen.** `disc_handle_input` runs every frame including after the match ends, but the only clamp lived in `disc_update`, which is gated on `disc_game_done`. Holding a movement key on the game-over screen drove `disc_p1_y` past −160 and the paddle vanished. The clamp now lives in the input handler (matching how Interceptors bounds `int_player_x`), and both it and `disc_update` share `disc_min_y()` / `disc_max_y()` so they cannot drift apart.
+
+### Removed
+- **`gb_score`, a dead second scoring path in Grid Bugs.** It was initialised, reset, and awarded +1000 for reaching the I/O Tower — and never read by anything. The live award is `main.cyr`'s `game_score += gb_level * 500`. Editing the obvious-looking one inside the game module changed nothing that was displayed or persisted; `main.cyr` is now the single scoring authority.
+
+### Changed
+- **CI lint is a hard gate.** The eight over-long tank-input one-liners it used to tolerate disappeared when Battle Tanks movement was rewritten, so `src/` is lint-clean and the gate now holds that line instead of merely reporting it.
+
+### Added
+- `tests/lightcycles-headon.tcyr` — 17 assertions over collision resolution: head-on swap and same-cell approaches are draws, the outcome is symmetric under role reversal, driving into a vacated cell kills, diverging cycles both survive and both lay trail, and boundaries and existing trails still kill. Mutation-checked against the 0.6.3 behaviour (6 assertions go red).
+- MCP Cone lives and scoring assertions in `tests/mcpcone-rotation.tcyr`, also mutation-checked. The suite total is now 52 assertions across 4 files.
+
+### Notes
+- **This release wants play-testing, and the headless suite cannot substitute.** Battle Tanks is the big one: the player now moves at the same 15 cells/s as the AI and its shells, which is a large change to how the game feels and may want a different `tk_tick_rate` or a separate movement rate. MCP Cone's three attempts is a first guess at a difficulty curve, not a measured one. Disc Arena's AI has been dodging since 0.6.3 and still has not been played.
+- Render is unchanged except MCP Cone, whose 135 changed pixels are the new lives pips (confirmed confined to x=5..27, y=5..11 — the pip region plus its glow bleed). `screenshots/mcpcone.png` regenerated. The other 13 frames are `magick compare -metric AE` = 0 against the committed art, because the fixes above are behavioural and the reference frames are captured at states they do not alter.
+- Binary 393,960 → 393,984 bytes.
+
 ## [0.6.3] — 2026-08-31
 
 Priority-1 audit and hardening pass: a six-lens sweep of `src/` (memory safety,

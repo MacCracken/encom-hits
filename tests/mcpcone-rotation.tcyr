@@ -65,10 +65,51 @@ fn test_wrap_is_segment_aligned(): i64 {
     return 0;
 }
 
+# 0.7.0: MCP Cone gained the lose condition its header always promised.
+# Through 0.6.3 mcp_player_alive was never cleared, so the game could be won but
+# never lost and every completed run scored exactly 1800.
+fn test_lives_are_spent_and_run_out(): i64 {
+    mcp_init();
+    assert_eq(mcp_lives_left(), MCP_START_LIVES, "a run starts with full attempts");
+    assert_eq(mcp_lost(), 0, "a fresh run is not lost");
+    assert_eq(mcp_player_alive, 1, "a fresh run is alive");
+
+    # Aim at a segment that is NOT the outer ring's gap, so every shot is eaten
+    # by the barrier. Ring 0's gap is (0 * 3) % 16 == 0, so aim elsewhere.
+    var shots = 0;
+    while (shots < MCP_START_LIVES) {
+        mcp_player_angle = 8;
+        mcp_fire();
+        # Advance until the shot resolves against ring 0.
+        var guard = 0;
+        while (guard < 40) {
+            if (mcp_shot_alive == 0) { guard = 40; }
+            else { mcp_update(); guard = guard + 1; }
+        }
+        shots = shots + 1;
+    }
+    assert_eq(mcp_lives_left(), 0, "attempts are consumed by destroyed shots");
+    assert_eq(mcp_lost(), 1, "running out of attempts loses the run");
+    assert_eq(mcp_player_alive, 0, "a lost run is not alive");
+    return 0;
+}
+
+# Scoring must vary with progress, not be a constant.
+fn test_rings_broken_is_the_scoring_basis(): i64 {
+    mcp_init();
+    assert_eq(mcp_rings_broken(), 0, "a fresh run has broken no rings");
+    _mcp_ring_set(&mcp_ring_alive, 0, 0);
+    _mcp_ring_set(&mcp_ring_alive, 3, 0);
+    assert_eq(mcp_rings_broken(), 2, "broken rings are counted");
+    return 0;
+}
+
 fn main(): i64 {
     test_render_hit_agree();
     test_rotation_is_observable();
     test_wrap_is_segment_aligned();
+    test_lives_are_spent_and_run_out();
+    test_rings_broken_is_the_scoring_basis();
     return assert_summary();
 }
 

@@ -109,16 +109,17 @@ fn int_fire() {
 fn int_update() {
     if (int_player_alive == 0) { return 0; }
 
-    # Spawn wave if clear
-    if (int_wave_clear == 1) {
-        int_spawn_timer = int_spawn_timer + 1;
-        if (int_spawn_timer >= 30) {
-            int_spawn_timer = 0;
-            int_spawn_wave();
-        }
-        return 0;
+    # Between waves only the enemy formation pauses. Through 0.6.3 this block
+    # returned early, so for the whole 30-tick respawn delay (~1.5 s at the
+    # tick rate) every bullet in flight froze at its exact pixel while
+    # int_render kept drawing it, then jumped back into motion. Worse, the
+    # 4-slot player bullet pool could not drain, so a player who kept firing
+    # filled it with frozen bullets and the fire button stopped responding.
+    # Bullets and collisions now keep running; only the enemy loop is skipped,
+    # and the respawn timer moved to the end of the function.
+    if (int_wave_clear == 0) {
+        if (int_wave == 0) { int_spawn_wave(); }
     }
-    if (int_wave == 0) { int_spawn_wave(); }
 
     # Move player bullets upward
     var i = 0;
@@ -131,11 +132,12 @@ fn int_update() {
         i = i + 1;
     }
 
-    # Move enemies downward
+    # Move enemies downward (held still between waves)
     var alive_count = 0;
     i = 0;
     while (i < int_en_count) {
-        if (_int_pb_get(&int_en_alive, i)) {
+        if (int_wave_clear == 1) { i = int_en_count; }
+        elif (_int_pb_get(&int_en_alive, i)) {
             var ex = _int_pb_get(&int_en_x, i) + _int_pb_get(&int_en_dx, i);
             var ey = _int_pb_get(&int_en_y, i) + 1;
 
@@ -220,7 +222,18 @@ fn int_update() {
         i = i + 1;
     }
 
-    if (alive_count <= 0) { int_wave_clear = 1; int_spawn_timer = 0; }
+    if (int_wave_clear == 1) {
+        # Respawn countdown, run after the bullet/collision work above so
+        # nothing in flight is stalled by it.
+        int_spawn_timer = int_spawn_timer + 1;
+        if (int_spawn_timer >= 30) {
+            int_spawn_timer = 0;
+            int_spawn_wave();
+        }
+    } elif (alive_count <= 0) {
+        int_wave_clear = 1;
+        int_spawn_timer = 0;
+    }
     return 0;
 }
 

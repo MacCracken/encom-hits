@@ -8,12 +8,12 @@ Retro arcade game collection in Cyrius. Six games, one engine, neon on black. Th
 
 | Game | Mechanic | Lines |
 |------|----------|-------|
-| **Light Cycles** | Trail walls, last alive wins | 188 |
-| **Grid Bugs** | Grid traversal, pathfinding pursuit | 258 |
-| **Battle Tanks** | Maze combat, ricochet projectiles | 274 |
-| **MCP Cone** | Rotating barriers, timing-based | 248 |
-| **Interceptors** | Vertical shooter, wave enemies | 287 |
-| **Disc Arena** | 1v1 disc combat, wall ricochets | 275 |
+| **Light Cycles** | Trail walls, last alive wins | 226 |
+| **Grid Bugs** | Grid traversal, pathfinding pursuit | 255 |
+| **Battle Tanks** | Maze combat, ricochet projectiles | 314 |
+| **MCP Cone** | Rotating barriers, timing-based | 315 |
+| **Interceptors** | Vertical shooter, wave enemies | 300 |
+| **Disc Arena** | 1v1 disc combat, wall ricochets | 292 |
 
 ![Menu](screenshots/menu.png)
 
@@ -57,24 +57,24 @@ Neon wireframe on black. No textures, no sprites, no assets. Every pixel is a co
 
 ## Architecture
 
-4,208 lines across 14 source files. Shared engine (framebuffer, drawing, input, glow, AI, grid) with per-game modules.
+4,380 lines across 14 source files. Shared engine (framebuffer, drawing, input, glow, AI, grid) with per-game modules.
 
 ```
 src/
-  main.cyr          — Entry, menu, bitmap text, splash, scoring, --ppm mode (1,105)
+  main.cyr          — Entry, menu, bitmap text, splash, scoring, --ppm mode (1,141)
   engine.cyr        — Framebuffer, /dev/fb0 + PPM output, frame timing (406)
   draw.cyr          — Bresenham line, hline/vline, rect, pixel (153)
-  input.cyr         — Terminal raw mode, keyboard state, escape sequences (169)
+  input.cyr         — Terminal raw mode, keyboard state, escape sequences (172)
   glow.cyr          — Additive neon bloom effect (106)
   ai.cyr            — A* (open grid + maze-aware), chase, LC lookahead (412)
-  grid.cyr          — Maze generation (iterative backtracker) (187)
+  grid.cyr          — Maze generation (iterative backtracker) (193)
   types.cyr         — Colors, constants, game IDs (95)
-  lightcycles.cyr   — Light Cycles (188)
-  gridbugs.cyr      — Grid Bugs (258)
-  tanks.cyr         — Battle Tanks (274)
-  mcpcone.cyr       — MCP Cone (272)
-  interceptors.cyr  — Interceptors (287)
-  discs.cyr         — Disc Arena (287)
+  lightcycles.cyr   — Light Cycles (226)
+  gridbugs.cyr      — Grid Bugs (255)
+  tanks.cyr         — Battle Tanks (314)
+  mcpcone.cyr       — MCP Cone (315)
+  interceptors.cyr  — Interceptors (300)
+  discs.cyr         — Disc Arena (292)
 ```
 
 ## License

@@ -46,12 +46,20 @@ jobs:
           echo "${{ github.event.repository.name }}: $(wc -c < build/${{ github.event.repository.name }}) bytes"
 
       - name: Lint
-        # Soft gate: runs the linter for visibility but does not fail on style
-        # warnings. Eight tank-input one-liners in src/main.cyr exceed the
-        # 120-char guide; wrapping them is part of the 0.7→0.9 hardening, after
-        # which this can be tightened to a hard "any warn fails".
+        # Hard gate as of 0.7.0. The eight over-long tank-input one-liners this
+        # step used to tolerate went away when Battle Tanks movement was
+        # rewritten to latch a direction instead of moving inline, so src/ is
+        # now lint-clean and the gate can hold that line.
         run: |
-          for f in src/*.cyr; do cyrius lint "$f"; done
+          FAIL=0
+          for f in src/*.cyr; do
+            OUT=$(cyrius lint "$f" 2>&1)
+            echo "$OUT"
+            if echo "$OUT" | grep -qE '^[[:space:]]*warn '; then
+              echo "::error file=$f::lint warnings in $f"; FAIL=1
+            fi
+          done
+          [ "$FAIL" -eq 0 ] || { echo "::error::lint is a hard gate — fix the warnings above"; exit 1; }
 
       - name: Test
         # `cyrius tests` auto-discovers every .tcyr under tests/ — as of 0.6.3

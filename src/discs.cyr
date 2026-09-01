@@ -87,6 +87,11 @@ fn _disc_ai_throw() {
     return 0;
 }
 
+# Arena bounds for the paddle, shared with main.cyr's input handler so the
+# clamp cannot drift from the one disc_update applies.
+fn disc_min_y() { return _da_t + 16; }
+fn disc_max_y() { return _da_t + _da_h - 16; }
+
 fn disc_update() {
     var top = _da_t;
     var bot = _da_t + _da_h;
@@ -213,11 +218,11 @@ fn disc_update() {
         if (disc_ai_cd <= 0) { _disc_ai_throw(); }
     }
 
-    # Clamp positions
-    if (disc_p1_y < top + 16) { disc_p1_y = top + 16; }
-    if (disc_p1_y > bot - 16) { disc_p1_y = bot - 16; }
-    if (disc_ai_y < top + 16) { disc_ai_y = top + 16; }
-    if (disc_ai_y > bot - 16) { disc_ai_y = bot - 16; }
+    # Clamp positions (same bounds the input handler applies every frame)
+    if (disc_p1_y < disc_min_y()) { disc_p1_y = disc_min_y(); }
+    if (disc_p1_y > disc_max_y()) { disc_p1_y = disc_max_y(); }
+    if (disc_ai_y < disc_min_y()) { disc_ai_y = disc_min_y(); }
+    if (disc_ai_y > disc_max_y()) { disc_ai_y = disc_max_y(); }
 
     return 0;
 }
