@@ -119,11 +119,22 @@ fn draw_filled_rect(fb, x, y, w, h, color) {
 
 # Clear the framebuffer to black.
 fn draw_clear(fb) {
+    # Word-wise clear, not memset: the vendored stdlib memset is a byte-at-a-time
+    # loop (lib/string.cyr), so clearing the 307,200-byte surface cost ~8.3M
+    # instructions on EVERY frame of every game — this is the single hottest
+    # call in the engine (10 call sites, all per-frame). The surface is always
+    # _fb_ptr, which alloc() returns 8-byte aligned, and its size is an exact
+    # multiple of 8, so 64-bit stores are equivalent and run 8x fewer iterations.
+    #
     # NOTE: the right-nested grouping worked around a cyrius 6.0.x mis-fold of
     # a chained `enum * enum * literal` (it dropped the first factor → 960, not
-    # 307200). Fixed upstream in cyrius 6.1.37; both groupings fold correctly on
-    # the pinned 6.5.36. Kept as-is because it reads fine and costs nothing.
-    memset(fb, 0, SCREEN_W * (SCREEN_H * 4));
+    # 307200). Fixed upstream in cyrius 6.1.37; kept as-is on the pinned 6.5.36.
+    var p = fb;
+    var end = fb + SCREEN_W * (SCREEN_H * 4);
+    while (p < end) {
+        store64(p, 0);
+        p = p + 8;
+    }
     return 0;
 }
 

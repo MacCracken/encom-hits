@@ -38,9 +38,22 @@ var pending_game = 0;
 var game_score = 0;
 var _scores[6];
 
+# Set by scores_update when the run actually beat the stored best. The
+# game-over screens need this: they render AFTER scores_update has already
+# written the new high score, so comparing game_score against scores_get()
+# there can never be true (the 0.6.2 bug — "NEW BEST" was unreachable in all
+# four game-over screens). Cleared when a new run starts.
+var game_new_best = 0;
+
 fn scores_load() {
-    var fd = syscall(SYS_OPEN, "scores.dat", 0, 0);
+    # O_NOFOLLOW here too — a planted symlink could otherwise point this read at
+    # a file the user can see but the attacker cannot. The clamp below already
+    # bounds whatever bytes arrive, so a hostile file cannot do worse than set
+    # implausible high scores.
+    var fd = syscall(SYS_OPEN, "scores.dat", O_NOFOLLOW, 0);
     if (fd < 0) { return 0; }
+    # A short read leaves the remaining slots at their .bss zero, which the
+    # clamp accepts; nothing here depends on reading all 48 bytes.
     syscall(SYS_READ, fd, &_scores, 48);
     syscall(SYS_CLOSE, fd);
 
@@ -56,7 +69,11 @@ fn scores_load() {
 }
 
 fn scores_save() {
-    var fd = syscall(SYS_OPEN, "scores.dat", O_WRONLY | O_CREAT | O_TRUNC, 420);
+    # O_NOFOLLOW: scores.dat is a RELATIVE path, so it lands in whatever
+    # directory the game was launched from. Without this, running the binary
+    # from a directory someone else can write to lets them plant a symlink named
+    # scores.dat and have this process truncate the target. Mode 384 = 0600.
+    var fd = syscall(SYS_OPEN, "scores.dat", O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW, 384);
     if (fd < 0) { return 0; }
     syscall(SYS_WRITE, fd, &_scores, 48);
     syscall(SYS_CLOSE, fd);
@@ -76,6 +93,7 @@ fn scores_update(game, score) {
     var old = load64(&_scores + idx);
     if (score > old) {
         store64(&_scores + idx, score);
+        game_new_best = 1;
         scores_save();
     }
     return 0;
@@ -471,6 +489,7 @@ fn title_render(fb, game) {
 fn _title_start_game() {
     current_game = pending_game;
     game_score = 0;
+    game_new_best = 0;
     if (current_game == GAME_LIGHTCYCLES) { lc_init(); }
     if (current_game == GAME_GRIDBUGS) { gb_init(1); }
     if (current_game == GAME_TANKS) { tk_init(engine_frame_count()); }
@@ -525,8 +544,7 @@ fn gameover_render(fb, winner) {
     }
     draw_text(fb, "SCORE:", 100, 135, COLOR_DIM_BLUE, 2);
     draw_number(fb, game_score, 172, 135, COLOR_WHITE, 2);
-    var hi = scores_get(current_game);
-    if (game_score > hi) {
+    if (game_new_best == 1) {
         draw_text(fb, "NEW BEST", 104, 158, COLOR_GREEN, 2);
     }
     draw_text(fb, "ESC FOR MENU", 88, 180, COLOR_DIM_BLUE, 2);
@@ -617,8 +635,7 @@ fn gb_game_tick(fb) {
         draw_text(fb, "GAME OVER", 88, 90, COLOR_RED, 3);
         draw_text(fb, "SCORE:", 100, 125, COLOR_DIM_BLUE, 2);
         draw_number(fb, game_score, 172, 125, COLOR_WHITE, 2);
-        var hi = scores_get(GAME_GRIDBUGS);
-        if (game_score > hi) {
+        if (game_new_best == 1) {
             draw_text(fb, "NEW BEST", 104, 148, COLOR_GREEN, 2);
         }
         draw_text(fb, "ESC FOR MENU", 88, 170, COLOR_DIM_BLUE, 2);
@@ -741,8 +758,7 @@ fn mcp_game_tick(fb) {
         draw_text(fb, "MCP DEFEATED", 64, 90, COLOR_GREEN, 3);
         draw_text(fb, "SCORE:", 100, 125, COLOR_DIM_BLUE, 2);
         draw_number(fb, game_score, 172, 125, COLOR_WHITE, 2);
-        var hi = scores_get(GAME_MCPCONE);
-        if (game_score > hi) {
+        if (game_new_best == 1) {
             draw_text(fb, "NEW BEST", 104, 148, COLOR_GREEN, 2);
         }
         draw_text(fb, "ESC FOR MENU", 88, 170, COLOR_DIM_BLUE, 2);
@@ -803,8 +819,7 @@ fn int_game_tick(fb) {
         draw_text(fb, "GAME OVER", 88, 90, COLOR_RED, 3);
         draw_text(fb, "SCORE:", 100, 125, COLOR_DIM_BLUE, 2);
         draw_number(fb, game_score, 172, 125, COLOR_WHITE, 2);
-        var hi = scores_get(GAME_INTERCEPTORS);
-        if (game_score > hi) {
+        if (game_new_best == 1) {
             draw_text(fb, "NEW BEST", 104, 148, COLOR_GREEN, 2);
         }
         draw_text(fb, "ESC FOR MENU", 88, 170, COLOR_DIM_BLUE, 2);

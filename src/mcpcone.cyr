@@ -6,10 +6,21 @@
 # Player fires projectile through gaps to break barriers.
 # Reach the center to win. Get hit = death.
 
+# Rotation is measured in 1/160 turns, NOT "degrees * 10" as this file used to
+# claim: mcp_update wraps mcp_ring_angle at 160, so one unit is 2.25 degrees and
+# a full turn is 160 units. A segment is 1/16 turn, so MCP_ANGLE_PER_SEG = 10
+# units convert a rotation into a segment offset. Both the renderer and the shot
+# hit test MUST apply that same conversion or the visible gap is not the
+# passable one (the 0.6.2 bug: the renderer ignored rotation entirely).
+enum McpRot {
+    MCP_ANGLE_WRAP    = 160;  # units per full turn (must stay a multiple of 16)
+    MCP_ANGLE_PER_SEG = 10;   # MCP_ANGLE_WRAP / MCP_SEGMENTS
+}
+
 # Ring state: each ring has rotation angle and gap position
-var mcp_ring_angle[8];    # current rotation (0-359 in degrees * 10)
+var mcp_ring_angle[8];    # current rotation, 0..159 (1/160 turn per unit)
 var mcp_ring_speed[8];    # rotation speed per tick
-var mcp_ring_gap[8];      # gap segment index (0-15)
+var mcp_ring_gap[8];      # gap segment index (0-15), in the ring's own frame
 var mcp_ring_alive[8];    # 1 = barrier active, 0 = broken
 
 # Player projectile
@@ -74,6 +85,19 @@ fn _mcp_cos_get(i) { return load64(&_mcp_cos + (i % 16) * 8); }
 fn _mcp_ring_get(arr, i) { return load64(arr + i * 8); }
 fn _mcp_ring_set(arr, i, v) { store64(arr + i * 8, v); return 0; }
 
+# Which of a ring's own segments currently sits at screen position `seg`,
+# given that ring's rotation in 1/160-turn units.
+#
+# BOTH the renderer and the shot hit test MUST go through this. Through 0.6.2
+# they each had their own copy of the formula and the copies disagreed: the
+# renderer dropped the rotation term entirely, so the gap the player could see
+# was never the gap a shot could pass, and no ring ever appeared to turn.
+fn _mcp_seg_at(seg, ring_offset) {
+    var e = (seg + ring_offset / MCP_ANGLE_PER_SEG) % MCP_SEGMENTS;
+    if (e < 0) { e = e + MCP_SEGMENTS; }
+    return e;
+}
+
 fn mcp_init() {
     _mcp_init_trig();
 
@@ -109,8 +133,8 @@ fn mcp_update() {
             var angle = _mcp_ring_get(&mcp_ring_angle, i);
             var speed = _mcp_ring_get(&mcp_ring_speed, i);
             angle = angle + speed;
-            if (angle < 0) { angle = angle + 160; }
-            if (angle >= 160) { angle = angle - 160; }
+            if (angle < 0) { angle = angle + MCP_ANGLE_WRAP; }
+            if (angle >= MCP_ANGLE_WRAP) { angle = angle - MCP_ANGLE_WRAP; }
             _mcp_ring_set(&mcp_ring_angle, i, angle);
         }
         i = i + 1;
@@ -130,9 +154,8 @@ fn mcp_update() {
                 # Calculate which segment the shot is at
                 var ring_offset = _mcp_ring_get(&mcp_ring_angle, mcp_shot_ring);
                 var gap = _mcp_ring_get(&mcp_ring_gap, mcp_shot_ring);
-                # Shot segment based on player angle (0-15)
-                var shot_seg = (mcp_player_angle + ring_offset) % MCP_SEGMENTS;
-                if (shot_seg < 0) { shot_seg = shot_seg + MCP_SEGMENTS; }
+                # Which ring segment the shot meets, at the player's angle.
+                var shot_seg = _mcp_seg_at(mcp_player_angle, ring_offset);
 
                 if (shot_seg == gap) {
                     # Passed through gap -- break this ring
@@ -176,10 +199,11 @@ fn mcp_render(fb) {
             # Draw segments as lines between vertices
             var seg = 0;
             while (seg < MCP_SEGMENTS) {
-                var effective_seg = (seg + ring_offset) % MCP_SEGMENTS;
-                if (effective_seg < 0) { effective_seg = effective_seg + MCP_SEGMENTS; }
+                # Same conversion the hit test uses, so the hole you can see
+                # is exactly the hole a shot can pass through.
+                var effective_seg = _mcp_seg_at(seg, ring_offset);
 
-                if (seg != gap) {
+                if (effective_seg != gap) {
                     # Draw this segment
                     var x0 = MCP_CENTER_X + _mcp_cos_get(seg) * radius / 100;
                     var y0 = MCP_CENTER_Y + _mcp_sin_get(seg) * radius / 100;

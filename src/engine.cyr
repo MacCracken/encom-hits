@@ -25,6 +25,7 @@ enum FileFlags {
     O_WRONLY = 1;
     O_CREAT = 64;
     O_TRUNC = 512;
+    O_NOFOLLOW = 131072;   # 1 << 17 (Linux). Refuse to open a symlink.
 }
 
 # Linux framebuffer geometry probe.
@@ -67,6 +68,14 @@ var _fb_xoff  = 0;          # left letterbox, pixels
 var _fb_yoff  = 0;          # top letterbox, rows
 var _fb_blit  = 0;          # full-screen scratch (pitch * yres)
 
+# How much of the 320x240 surface actually fits the panel. On a display
+# smaller than the surface (fbtft SPI panels, vesafb 320x200) the scale floor
+# of 1 means the scaled extent overruns the scratch buffer; engine_present
+# clamps its device write but engine_blit used to walk the full 320x240 and
+# scribble past the allocation. These bound the blit loops instead.
+var _fb_src_w = 320;
+var _fb_src_h = 240;
+
 # Timing state
 var _frame_start_s = 0;
 var _frame_start_ns = 0;
@@ -93,6 +102,9 @@ fn engine_init() {
     # 307200). Fixed upstream in cyrius 6.1.37; kept as-is on the pinned 6.5.36.
     _fb_size = SCREEN_W * (SCREEN_H * 4);
     _fb_ptr = alloc(_fb_size);
+    # alloc() returns 0 when the heap cannot grow (e.g. under a tight ulimit -v).
+    # Without this the very next statement memsets 307,200 bytes at address 0.
+    if (_fb_ptr == 0) { return 0; }
 
     # Clear to black
     memset(_fb_ptr, 0, _fb_size);
@@ -123,8 +135,14 @@ fn engine_probe_fb() {
     memset(vinfo, 0, FB_VINFO_SIZE);
     memset(finfo, 0, FB_FINFO_SIZE);
 
-    syscall(SYS_IOCTL, _fb_fd, FBIOGET_VSCREENINFO, vinfo);
-    syscall(SYS_IOCTL, _fb_fd, FBIOGET_FSCREENINFO, finfo);
+    var rc_v = syscall(SYS_IOCTL, _fb_fd, FBIOGET_VSCREENINFO, vinfo);
+    var rc_f = syscall(SYS_IOCTL, _fb_fd, FBIOGET_FSCREENINFO, finfo);
+
+    # A failed ioctl leaves the (zeroed) scratch in place, which the guards
+    # below would silently turn into 320x240/32bpp defaults. Say so explicitly
+    # rather than blitting against invented geometry.
+    if (rc_v < 0) { _fb_fd = 0 - 1; return 0; }
+    if (rc_f < 0) { _fb_fd = 0 - 1; return 0; }
 
     _fb_xres  = load32(vinfo + VINFO_XRES);
     _fb_yres  = load32(vinfo + VINFO_YRES);
@@ -139,6 +157,21 @@ fn engine_probe_fb() {
         _fb_pitch = _fb_xres * (_fb_bpp / 8);
     }
 
+    # engine_blit only implements 16bpp (RGB565 pack) and 32bpp (verbatim
+    # BGRX). Every other depth used to fall into the 32bpp branch, which does a
+    # 4-byte store while advancing by _fb_bpp/8 bytes: at 8/15bpp that writes
+    # 4x past each row, at 24bpp it overlaps every pixel and runs one byte past
+    # the last row. Refuse the device instead of corrupting memory.
+    if (_fb_bpp != 16) {
+        if (_fb_bpp != 32) { _fb_fd = 0 - 1; return 0; }
+    }
+
+    # Reject geometry too large to be real before it reaches the multiply
+    # below, so _fb_pitch * _fb_yres cannot overflow into a negative size.
+    if (_fb_xres > 16384)   { _fb_fd = 0 - 1; return 0; }
+    if (_fb_yres > 16384)   { _fb_fd = 0 - 1; return 0; }
+    if (_fb_pitch > 262144) { _fb_fd = 0 - 1; return 0; }
+
     # Largest integer scale that fits both axes (>= 1).
     var sx = _fb_xres / SCREEN_W;
     var sy = _fb_yres / SCREEN_H;
@@ -151,10 +184,26 @@ fn engine_probe_fb() {
     if (_fb_xoff < 0) { _fb_xoff = 0; }
     if (_fb_yoff < 0) { _fb_yoff = 0; }
 
+    # With the scale floored at 1, a panel narrower or shorter than 320x240
+    # leaves the scaled extent hanging off the end of the scratch buffer. Bound
+    # the source rectangle to what actually fits; engine_blit walks these.
+    _fb_src_w = SCREEN_W;
+    _fb_src_h = SCREEN_H;
+    if (_fb_xoff + _fb_src_w * _fb_scale > _fb_xres) {
+        _fb_src_w = (_fb_xres - _fb_xoff) / _fb_scale;
+    }
+    if (_fb_yoff + _fb_src_h * _fb_scale > _fb_yres) {
+        _fb_src_h = (_fb_yres - _fb_yoff) / _fb_scale;
+    }
+    if (_fb_src_w < 0) { _fb_src_w = 0; }
+    if (_fb_src_h < 0) { _fb_src_h = 0; }
+
     # Full-screen scratch: blit once into RAM, one write() to vram.
     # Letterbox bars stay black (zeroed here, never overwritten).
-    _fb_blit = alloc(_fb_pitch * _fb_yres);
-    memset(_fb_blit, 0, _fb_pitch * _fb_yres);
+    var blit_sz = _fb_pitch * _fb_yres;
+    _fb_blit = alloc(blit_sz);
+    if (_fb_blit == 0) { _fb_fd = 0 - 1; return 0; }
+    memset(_fb_blit, 0, blit_sz);
     return 0;
 }
 
@@ -176,8 +225,13 @@ fn engine_present() {
         syscall(SYS_WRITE, _fb_fd, _fb_blit + _fb_yoff * _fb_pitch,
                 rows * _fb_pitch);
     } else {
-        # Fallback: write PPM to /tmp/encom-hits.ppm
-        engine_write_ppm();
+        # Fallback: refresh /tmp/encom-hits.ppm so the frame is inspectable
+        # without a framebuffer — but only about once a second. This used to run
+        # every frame, and /dev/fb0 is root:video 0660, so for any user not in
+        # that group (and in CI) the DEFAULT path was 230 KB of conversion plus
+        # a 230 KB write, 60 times a second: ~13.8 MB/s of pure waste for a
+        # file nothing was reading at that rate.
+        if (_frame_count % 60 == 0) { engine_write_ppm(); }
     }
 
     _frame_count = _frame_count + 1;
@@ -189,24 +243,40 @@ fn engine_present() {
 # 32bpp little-endian framebuffer, so 32bpp is a straight copy with the
 # alpha/pad byte forced opaque; 16bpp packs to RGB565.
 fn engine_blit() {
+    # Globals are re-loaded from memory on every reference by this toolchain, and
+    # this runs 76,800 times a frame — hoist everything loop-invariant first.
+    var scale     = _fb_scale;
+    var pitch     = _fb_pitch;
+    var blit      = _fb_blit;
+    var src       = _fb_ptr;
+    var xoff      = _fb_xoff;
+    var yoff      = _fb_yoff;
+    var is16      = 0;
+    if (_fb_bpp == 16) { is16 = 1; }
     var bpp_bytes = _fb_bpp / 8;
-    var row_bytes = SCREEN_W * (_fb_scale * bpp_bytes);
+
+    # Bounded to what fits the panel (see engine_probe_fb) — not the full
+    # 320x240 — so a display smaller than the surface cannot overrun _fb_blit.
+    var src_w = _fb_src_w;
+    var src_h = _fb_src_h;
+    var row_bytes = src_w * (scale * bpp_bytes);
+
     var sy = 0;
-    while (sy < SCREEN_H) {
-        var src_row = _fb_ptr + sy * (SCREEN_W * 4);
-        var dy0     = _fb_yoff + sy * _fb_scale;
-        var first   = _fb_blit + dy0 * _fb_pitch + _fb_xoff * bpp_bytes;
+    while (sy < src_h) {
+        var src_row = src + sy * (SCREEN_W * 4);
+        var dy0     = yoff + sy * scale;
+        var first   = blit + dy0 * pitch + xoff * bpp_bytes;
         var dx      = first;
         var sx      = 0;
-        while (sx < SCREEN_W) {
+        while (sx < src_w) {
             var so = sx * 4;
-            if (_fb_bpp == 16) {
+            if (is16 == 1) {
                 var b = load8(src_row + so);
                 var g = load8(src_row + so + 1);
                 var r = load8(src_row + so + 2);
                 var p16 = ((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3);
                 var rx = 0;
-                while (rx < _fb_scale) {
+                while (rx < scale) {
                     store8(dx, p16 & 0xFF);
                     store8(dx + 1, (p16 >> 8) & 0xFF);
                     dx = dx + 2;
@@ -216,19 +286,43 @@ fn engine_blit() {
                 # 32bpp: reuse the source pixel verbatim, force opaque.
                 var p32 = load32(src_row + so) | 0xFF000000;
                 var rx = 0;
-                while (rx < _fb_scale) {
+                while (rx < scale) {
                     store32(dx, p32);
-                    dx = dx + bpp_bytes;
+                    dx = dx + 4;
                     rx = rx + 1;
                 }
             }
             sx = sx + 1;
         }
         # Replicate the just-built row to fill the vertical scale block.
+        #
+        # Word-wise, not memcpy: the vendored stdlib memcpy is a byte-at-a-time
+        # loop (lib/string.cyr, ~32 instructions per BYTE), and this call sits
+        # inside the per-row loop. On a 2560x1440 panel (scale 6) that measured
+        # 15.1 ms per frame on its own — the whole 16.67 ms budget — so the
+        # display path could not hold 60fps on an ordinary monitor.
+        #
+        # The regions never overlap (dst sits ry >= 1 whole pitches below src),
+        # so a forward copy is correct. row_bytes is a multiple of 8 in the
+        # common full-width case (320 = 40*8), but NOT once the clamp above
+        # trims src_w to an odd panel width — so copy whole words while a full
+        # word remains, then finish the tail a byte at a time.
         var ry = 1;
-        while (ry < _fb_scale) {
-            memcpy(_fb_blit + (dy0 + ry) * _fb_pitch + _fb_xoff * bpp_bytes,
-                   first, row_bytes);
+        while (ry < scale) {
+            var d = blit + (dy0 + ry) * pitch + xoff * bpp_bytes;
+            var sp = first;
+            var e8 = first + (row_bytes / 8) * 8;
+            var e  = first + row_bytes;
+            while (sp < e8) {
+                store64(d, load64(sp));
+                d = d + 8;
+                sp = sp + 8;
+            }
+            while (sp < e) {
+                store8(d, load8(sp));
+                d = d + 1;
+                sp = sp + 1;
+            }
             ry = ry + 1;
         }
         sy = sy + 1;
@@ -242,7 +336,13 @@ fn engine_write_ppm() {
 }
 
 fn engine_write_ppm_to(path) {
-    var fd = syscall(SYS_OPEN, path, O_WRONLY | O_CREAT | O_TRUNC, 420);
+    # O_NOFOLLOW: these are fixed, predictable paths in a world-writable /tmp.
+    # Without it, anyone who pre-creates /tmp/encom_*.ppm as a symlink gets this
+    # process to truncate and overwrite the target on their behalf. Modern
+    # kernels also refuse that via fs.protected_symlinks, but that is a sysctl
+    # someone else controls — this is ours. O_EXCL is deliberately NOT used: the
+    # fallback legitimately rewrites the same path repeatedly.
+    var fd = syscall(SYS_OPEN, path, O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW, 384);
     if (fd < 0) { return 0; }
 
     # PPM header: P6\n320 240\n255\n

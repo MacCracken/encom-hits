@@ -179,9 +179,21 @@ fn disc_update() {
     # AI behavior
     if (disc_p1_live) {
         if (disc_p1_dx > 0) {
-            # Dodge incoming player disc
-            if (disc_ai_y < disc_p1_fy - 3) { disc_ai_y = disc_ai_y + 2; }
-            if (disc_ai_y > disc_p1_fy + 3) { disc_ai_y = disc_ai_y - 2; }
+            # Dodge the incoming player disc: step AWAY from its row.
+            # Through 0.6.2 this block was a verbatim copy of the "track own
+            # disc for catch" case below — same signs, step 2 instead of 1 — so
+            # the AI walked INTO every throw and lost 5-0 to one repeated key.
+            if (disc_ai_y < disc_p1_fy - 3) {
+                disc_ai_y = disc_ai_y - 2;
+            } elif (disc_ai_y > disc_p1_fy + 3) {
+                disc_ai_y = disc_ai_y + 2;
+            } else {
+                # Inside the +/-3 dead band neither test fires, so a straight
+                # throw would arrive dead centre against a stationary paddle.
+                # Break the tie toward whichever edge has more room.
+                if (disc_ai_y < 120) { disc_ai_y = disc_ai_y - 2; }
+                else { disc_ai_y = disc_ai_y + 2; }
+            }
         }
     } elif (disc_ai_live) {
         # Track own disc for catch

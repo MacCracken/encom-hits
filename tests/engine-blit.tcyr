@@ -1,0 +1,86 @@
+# engine-blit -- regression cover for the framebuffer blit path.
+# CI cannot exercise this (no /dev/fb0), and 0.6.2 shipped an out-of-bounds
+# write here: with _fb_scale floored to 1, a panel smaller than the 320x240
+# surface made engine_blit walk the full surface and scribble past _fb_blit.
+# Mutation-checked: reverting the extent clamp turns the guard assertion red.
+
+include "src/types.cyr"
+include "src/engine.cyr"
+
+# Fake panel: 8 px guard on each side so an overrun is detectable.
+enum T {
+    PX = 100;      # panel width
+    PY = 80;       # panel height (both SMALLER than the 320x240 surface)
+    PBPP = 32;
+    GUARD = 0x5A;
+}
+
+fn main(): i64 {
+    var pitch = PX * 4;
+    var panel_sz = pitch * PY;
+    var pad = 64;
+    var base = alloc(panel_sz + pad + pad);
+    memset(base, GUARD, panel_sz + pad + pad);
+    var panel = base + pad;
+    memset(panel, 0, panel_sz);
+
+    # A 320x240 BGRX source, every pixel a distinct value.
+    var surf = alloc(SCREEN_W * (SCREEN_H * 4));
+    var i = 0;
+    while (i < SCREEN_W * SCREEN_H) {
+        store32(surf + i * 4, i & 0x00FFFFFF);
+        i = i + 1;
+    }
+
+    _fb_ptr = surf;
+    _fb_xres = PX;  _fb_yres = PY;  _fb_bpp = PBPP;  _fb_pitch = pitch;
+    _fb_blit = panel;
+
+    # Reproduce what engine_probe_fb computes for this panel.
+    var sx = PX / SCREEN_W;   # 0
+    var sy = PY / SCREEN_H;   # 0
+    _fb_scale = sx; if (sy < _fb_scale) { _fb_scale = sy; }
+    if (_fb_scale < 1) { _fb_scale = 1; }
+    _fb_xoff = (PX - SCREEN_W * _fb_scale) / 2; if (_fb_xoff < 0) { _fb_xoff = 0; }
+    _fb_yoff = (PY - SCREEN_H * _fb_scale) / 2; if (_fb_yoff < 0) { _fb_yoff = 0; }
+    _fb_src_w = SCREEN_W;
+    _fb_src_h = SCREEN_H;
+    if (_fb_xoff + _fb_src_w * _fb_scale > _fb_xres) { _fb_src_w = (_fb_xres - _fb_xoff) / _fb_scale; }
+    if (_fb_yoff + _fb_src_h * _fb_scale > _fb_yres) { _fb_src_h = (_fb_yres - _fb_yoff) / _fb_scale; }
+
+    assert_eq(_fb_scale, 1, "scale floors to 1 on a sub-surface panel");
+    assert_eq(_fb_src_w, PX, "src width clamped to panel width");
+    assert_eq(_fb_src_h, PY, "src height clamped to panel height");
+
+    engine_blit();
+
+    # Guard bytes on both sides must be untouched.
+    var lo_ok = 1;
+    var k = 0;
+    while (k < pad) {
+        if (load8(base + k) != GUARD) { lo_ok = 0; }
+        if (load8(panel + panel_sz + k) != GUARD) { lo_ok = 0; }
+        k = k + 1;
+    }
+    assert_eq(lo_ok, 1, "engine_blit wrote nothing outside the panel buffer");
+
+    # Spot-check pixel fidelity at scale 1: panel(x,y) == surface(x,y) | opaque.
+    var px_ok = 1;
+    var y = 0;
+    while (y < PY) {
+        var x = 0;
+        while (x < PX) {
+            var got = load32(panel + y * pitch + x * 4);
+            var want = (((y * SCREEN_W) + x) & 0x00FFFFFF) | 0xFF000000;
+            if (got != want) { px_ok = 0; }
+            x = x + 1;
+        }
+        y = y + 1;
+    }
+    assert_eq(px_ok, 1, "every blitted pixel matches the source, forced opaque");
+
+    return assert_summary();
+}
+
+var rc = main();
+syscall(60, rc);

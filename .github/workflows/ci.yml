@@ -54,13 +54,22 @@ jobs:
           for f in src/*.cyr; do cyrius lint "$f"; done
 
       - name: Test
-        # Explicit .tcyr path. Bare `cyrius test` now recursively auto-discovers
-        # every .tcyr under tests/ (and `cyrius tests` does the same), but the
-        # explicit path keeps the gate pinned to the one suite this job asserts
-        # on. The grep gate fails the job unless the summary reports 0 failures.
+        # `cyrius tests` auto-discovers every .tcyr under tests/ — as of 0.6.3
+        # that is the constants suite plus two regression suites (engine-blit,
+        # mcpcone-rotation) covering paths the --ppm smoke test cannot reach.
+        # Assert on the per-suite lines too, so a suite that runs zero
+        # assertions or a newly added file that never gets discovered still
+        # fails the job rather than passing silently.
         run: |
-          cyrius test tests/encom-hits.tcyr 2>&1 | tee /tmp/test_output
-          tail -1 /tmp/test_output | grep ', 0 failed'
+          cyrius tests 2>&1 | tee /tmp/test_output
+          grep -q ', 0 failed' /tmp/test_output || { echo "::error::test summary missing"; exit 1; }
+          if grep -E '[1-9][0-9]* failed' /tmp/test_output; then
+            echo "::error::one or more suites reported failures"; exit 1
+          fi
+          SUITES=$(ls tests/*.tcyr | wc -l)
+          tail -1 /tmp/test_output | grep -q "^$SUITES passed, 0 failed" || {
+            echo "::error::expected $SUITES suites to run; summary was: $(tail -1 /tmp/test_output)"; exit 1
+          }
 
       - name: Smoke test (headless render)
         # encom-hits is a graphical app — the unit suite can't exercise the

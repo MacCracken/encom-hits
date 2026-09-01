@@ -1,6 +1,6 @@
 # ENCOM's Hits — Development Roadmap
 
-> **Status**: v0.6.2 (Cyrius 6.5.36 toolchain) — pre-1.0 hardening | **Last Updated**: 2026-08-31
+> **Status**: v0.6.3 (Cyrius 6.5.36 toolchain) — pre-1.0 hardening | **Last Updated**: 2026-08-31
 
 ---
 
@@ -100,7 +100,7 @@ the top band of the panel.
 
 **Exit criteria**: correct full-screen render on real hardware. **Met.**
 
-## v0.6.2 — Cyrius 6.5.36 Toolchain (current)
+## v0.6.2 — Cyrius 6.5.36 Toolchain
 
 Toolchain + dependency refresh. No game-logic changes.
 
@@ -113,6 +113,26 @@ Toolchain + dependency refresh. No game-logic changes.
 
 **Exit criteria**: clean build + 13/13 tests + all 14 `--ppm` frames on 6.5.36. **Met.**
 
+## v0.6.3 — P-1 Audit & Hardening (current)
+
+Six-lens audit of `src/` (memory safety, security, correctness, performance,
+structure, robustness), every acted-on finding independently verified. Two games
+were broken as designed; the display path could not hold 60fps on a normal monitor.
+
+| # | Item | Status | Notes |
+|---|------|--------|-------|
+| 1 | Function-local array sizing | Done | Five sites to file-scope `.bss`; see item 2a under hardening below |
+| 2 | MCP Cone render/hit desync | Done | Renderer ignored rotation entirely — no ring ever appeared to turn; both paths now share `_mcp_seg_at` |
+| 3 | Disc Arena AI dodge direction | Done | "Dodge" was a verbatim copy of "catch" — the AI stepped into every throw |
+| 4 | "NEW BEST" unreachable | Done | Compared against an already-updated high score; now a flag set where the comparison happens |
+| 5 | `engine_blit` out-of-bounds write | Done | A panel smaller than the 320x240 surface overran `_fb_blit`; extent now clamped |
+| 6 | Framebuffer probe hardening | Done | ioctl returns checked, bpp whitelisted to 16/32, geometry bounded, `alloc` guarded |
+| 7 | Per-frame cost | Done | `draw_clear` 443 → 49 us; `engine_blit` off the 15.1 ms byte-wise `memcpy`; glow black fast-reject; PPM fallback throttled from 60/s to ~1/s |
+| 8 | `O_NOFOLLOW` + mode 0600 on created files | Done | The 14 `/tmp` PPMs and the relative-path `scores.dat` |
+| 9 | Regression cover for paths CI cannot reach | Done | `tests/engine-blit.tcyr` (5), `tests/mcpcone-rotation.tcyr` (9), both mutation-checked; CI moved to `cyrius tests` |
+
+**Exit criteria**: clean build + 27 assertions across 3 suites + all 14 `--ppm` frames, renders pixel-neutral except the MCP Cone fix. **Met.**
+
 ## v0.7.0 → v0.9.0 — Pre-1.0 Hardening
 
 The room before 1.0.0. No new games — confidence work.
@@ -122,7 +142,9 @@ The room before 1.0.0. No new games — confidence work.
 | 1 | Full hands-on play-test pass (all 6 games, real `/dev/fb0`) | Pending | Live input/feel/difficulty/frame-pacing — the one thing headless `--ppm` can't cover |
 | 2 | Bug audit + fixes | Pending | Triage anything play-testing surfaces |
 | 2a | Function-local array sizing | Done | A function-local `var X[N]` reserves ONE 8-byte slot, not `N`. All five sites that indexed past it via `store64(&X + i*8, …)` are now file-scope `.bss` like `_ai_*`: `_draw_digits[8]` (`main.cyr`), `_maze_cand_dir[4]` (`grid.cyr`), `_engine_ts[2]` / `_engine_now_ts[2]` / `_engine_sleep_ts[2]` (`engine.cyr`). The `draw_number` site was **not** benign as previously recorded — it corrupted the menu and title cards whenever `scores.dat` held a non-zero score; the committed screenshots hid it by being captured with no `scores.dat`, so every call took the `num == 0` early return. `input.cyr` `buf[4]` stays a local (1-byte reads at offset 0 only). +144 bytes static; renders byte-identical where it was already correct, and maze output identical across 200 seeds |
-| 3 | Deep security audit | Pending | Re-audit input parsing, save-file I/O, bounds — beyond the initial 7-fix pass |
+| 2b | Game-feel defects found in the 0.6.3 audit | Pending | Tanks player movement is not tick-gated (holding a direction outruns the AI *and* the player's own projectiles); Tanks AI paths onto the player's own cell and stops, hiding the player; Interceptors freezes every bullet in flight for ~1.5 s between waves; Light Cycles decides head-on collisions by update order, always killing P2; MCP Cone has no lose condition; `gb_score` is a dead second scoring path. Deliberately deferred — each wants play-testing alongside the fix |
+| 2c | Disc Arena difficulty re-balance | Pending | 0.6.3 made the AI actually dodge instead of walking into throws; the right dodge speed is a feel question the headless suite cannot answer |
+| 3 | Deep security audit | Pending | Input parsing, save-file I/O, bounds. 0.6.3 covered the framebuffer probe/blit, `O_NOFOLLOW` on created files, and the `scores.dat` read path; the escape-sequence parser in `input.cyr` is the main remaining surface |
 | 4 | Cross-target build check | Pending | `--aarch64` / other targets if in scope |
 
 ## v1.0.0 — Release (target, after hardening)

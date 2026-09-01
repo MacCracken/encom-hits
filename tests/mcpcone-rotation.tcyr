@@ -1,0 +1,76 @@
+# mcpcone-rotation -- regression cover for the MCP Cone render/hit desync.
+#
+# Through 0.6.2 mcp_render computed `effective_seg` from the ring's rotation and
+# then tested the RAW segment index instead, while mcp_update tested the rotated
+# one. Consequences: no ring ever appeared to turn, and the gap the player could
+# see was never the gap a shot could pass. Both now go through _mcp_seg_at, and
+# these assertions pin that agreement down.
+
+# draw.cyr is included so mcp_render's calls resolve; the test only
+# exercises the pure _mcp_seg_at conversion.
+include "src/types.cyr"
+include "src/draw.cyr"
+include "src/mcpcone.cyr"
+
+# The renderer leaves open the screen position whose _mcp_seg_at equals the gap;
+# the hit test admits a shot whose _mcp_seg_at equals the same gap. Walk every
+# rotation phase and assert those are the same screen position.
+fn test_render_hit_agree(): i64 {
+    var mismatches = 0;
+    var open_counts_wrong = 0;
+
+    var rot = 0;
+    while (rot < MCP_ANGLE_WRAP) {
+        var gap = 0;
+        while (gap < MCP_SEGMENTS) {
+            # Which screen position does the renderer leave open?
+            var open_at = 0 - 1;
+            var opens = 0;
+            var seg = 0;
+            while (seg < MCP_SEGMENTS) {
+                if (_mcp_seg_at(seg, rot) == gap) { open_at = seg; opens = opens + 1; }
+                seg = seg + 1;
+            }
+            # Exactly one segment may be open, or the ring is not a ring.
+            if (opens != 1) { open_counts_wrong = open_counts_wrong + 1; }
+
+            # Would a shot fired at that same angle pass?
+            if (_mcp_seg_at(open_at, rot) != gap) { mismatches = mismatches + 1; }
+
+            gap = gap + 1;
+        }
+        rot = rot + 1;
+    }
+
+    assert_eq(open_counts_wrong, 0, "exactly one segment is open per ring phase");
+    assert_eq(mismatches, 0, "the visible gap is always the passable gap");
+    return 0;
+}
+
+# The conversion must actually depend on rotation — the 0.6.2 renderer ignored
+# it, which is precisely why nothing appeared to move.
+fn test_rotation_is_observable(): i64 {
+    assert_eq(_mcp_seg_at(0, 0), 0, "no rotation leaves segment 0 at position 0");
+    assert_eq(_mcp_seg_at(0, MCP_ANGLE_PER_SEG), 1, "one segment of rotation shifts by one");
+    assert_eq(_mcp_seg_at(0, MCP_ANGLE_WRAP - MCP_ANGLE_PER_SEG), MCP_SEGMENTS - 1, "last phase before wrap");
+    assert_eq(_mcp_seg_at(0, MCP_ANGLE_WRAP), 0, "a full turn is the identity");
+    assert_eq(_mcp_seg_at(MCP_SEGMENTS - 1, MCP_ANGLE_PER_SEG), 0, "shift wraps around the ring");
+    return 0;
+}
+
+# The wrap must stay a whole number of segments or the gap jumps at every wrap.
+fn test_wrap_is_segment_aligned(): i64 {
+    assert_eq(MCP_ANGLE_WRAP % MCP_SEGMENTS, 0, "wrap is a whole number of segments");
+    assert_eq(MCP_ANGLE_WRAP / MCP_SEGMENTS, MCP_ANGLE_PER_SEG, "units-per-segment is consistent");
+    return 0;
+}
+
+fn main(): i64 {
+    test_render_hit_agree();
+    test_rotation_is_observable();
+    test_wrap_is_segment_aligned();
+    return assert_summary();
+}
+
+var rc = main();
+syscall(60, rc);
