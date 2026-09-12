@@ -172,7 +172,7 @@ fn draw_char(fb, ch, cx, cy, color, scale) {
         while (col < 3) {
             if ((bits >> (2 - col)) & 1) {
                 draw_filled_rect(fb, cx + col * scale, cy + row * scale,
-                                 scale, scale, color);
+                  scale, scale, color);
             }
             col = col + 1;
         }

@@ -171,11 +171,11 @@ fn lc_render(fb) {
             var cell = _lc_grid_get(x, y);
             if (cell == 1) {
                 draw_filled_rect(fb, x * LC_CELL_W, y * LC_CELL_H,
-                                 LC_CELL_W, LC_CELL_H, COLOR_CYAN);
+                  LC_CELL_W, LC_CELL_H, COLOR_CYAN);
             }
             if (cell == 2) {
                 draw_filled_rect(fb, x * LC_CELL_W, y * LC_CELL_H,
-                                 LC_CELL_W, LC_CELL_H, COLOR_ORANGE);
+                  LC_CELL_W, LC_CELL_H, COLOR_ORANGE);
             }
             x = x + 1;
         }
@@ -185,11 +185,11 @@ fn lc_render(fb) {
     # Player heads (white)
     if (lc_p1_alive) {
         draw_filled_rect(fb, lc_p1_x * LC_CELL_W, lc_p1_y * LC_CELL_H,
-                         LC_CELL_W, LC_CELL_H, COLOR_WHITE);
+          LC_CELL_W, LC_CELL_H, COLOR_WHITE);
     }
     if (lc_p2_alive) {
         draw_filled_rect(fb, lc_p2_x * LC_CELL_W, lc_p2_y * LC_CELL_H,
-                         LC_CELL_W, LC_CELL_H, COLOR_WHITE);
+          LC_CELL_W, LC_CELL_H, COLOR_WHITE);
     }
 
     return 0;

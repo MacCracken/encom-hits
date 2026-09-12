@@ -223,7 +223,7 @@ fn engine_present() {
         if (_fb_yoff + rows > _fb_yres) { rows = _fb_yres - _fb_yoff; }
         syscall(SYS_LSEEK, _fb_fd, _fb_yoff * _fb_pitch, 0);
         syscall(SYS_WRITE, _fb_fd, _fb_blit + _fb_yoff * _fb_pitch,
-                rows * _fb_pitch);
+          rows * _fb_pitch);
     } else {
         # Fallback: refresh /tmp/encom-hits.ppm so the frame is inspectable
         # without a framebuffer — but only about once a second. This used to run

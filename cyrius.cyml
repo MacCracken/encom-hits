@@ -5,7 +5,7 @@ description = "ENCOM's Hits — retro arcade game collection in Cyrius. Six game
 license = "GPL-3.0-only"
 repository = "https://github.com/MacCracken/encom-hits"
 language = "cyrius"
-cyrius = "6.5.36"
+cyrius = "6.6.2"
 
 [build]
 entry = "src/main.cyr"

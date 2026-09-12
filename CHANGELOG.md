@@ -181,3 +181,12 @@ Six-game arcade collection. Shared engine, neon wireframe rendering, zero assets
 - File permissions 0644 on scores.dat and PPM output
 - Xorshift PRNG zero-trap guard
 - Bug spawn coordinates clamped to valid grid bounds
+
+## [Unreleased]
+
+## [0.7.1] - 2026-09-11
+
+### Changed
+
+- **Toolchain `6.5.36` → `6.6.2`.** No source change; the value form needed none.
+  Build, tests, and any bench/fuzz/distlib target the repo ships re-verified at the new pin.
