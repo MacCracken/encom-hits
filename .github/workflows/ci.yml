@@ -34,9 +34,11 @@ jobs:
           echo "$HOME/.cyrius/bin" >> "$GITHUB_PATH"
 
       - name: Resolve dependencies
-        # encom-hits is stdlib-only (no [deps.X] git overrides), so there is
-        # no cyrius.lock to verify — `cyrius deps` vendors the stdlib modules
-        # listed in [deps].stdlib from the installed toolchain snapshot.
+        # encom-hits is stdlib-only (no [deps.X] git overrides). `cyrius deps`
+        # vendors the stdlib modules listed in [deps].stdlib from the installed
+        # toolchain snapshot. Since 6.6.x it also (re)writes cyrius.lock with a
+        # sha256 per vendored file; the lock is tracked for reference (same as
+        # cyrius-polyomino) and this step does not `--verify` against it.
         run: cyrius deps
 
       - name: Build

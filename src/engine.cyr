@@ -99,7 +99,7 @@ fn engine_init() {
     # Allocate BGRA framebuffer: 320 * 240 * 4 = 307200 bytes
     # NOTE: the right-nested grouping worked around a cyrius 6.0.x mis-fold of a
     # chained `enum * enum * literal` (it dropped the first factor → 960, not
-    # 307200). Fixed upstream in cyrius 6.1.37; kept as-is on the pinned 6.5.36.
+    # 307200). Fixed upstream in cyrius 6.1.37; kept as-is on the pinned toolchain.
     _fb_size = SCREEN_W * (SCREEN_H * 4);
     _fb_ptr = alloc(_fb_size);
     # alloc() returns 0 when the heap cannot grow (e.g. under a tight ulimit -v).

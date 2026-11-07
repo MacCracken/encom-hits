@@ -25,7 +25,7 @@ cyrius build src/main.cyr build/encom-hits
 ./build/encom-hits
 ```
 
-Requires Cyrius >= 6.5.36.
+Requires Cyrius >= 6.6.20.
 
 ## Screenshots
 

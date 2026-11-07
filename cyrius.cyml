@@ -5,7 +5,7 @@ description = "ENCOM's Hits — retro arcade game collection in Cyrius. Six game
 license = "GPL-3.0-only"
 repository = "https://github.com/MacCracken/encom-hits"
 language = "cyrius"
-cyrius = "6.6.2"
+cyrius = "6.6.20"
 
 [build]
 entry = "src/main.cyr"
@@ -18,9 +18,14 @@ output = "build/encom-hits"
 #
 # The collection defines its own SYS_* enum (src/engine.cyr) and calls the
 # `syscall` builtin directly, so `syscalls` is not listed here. It is vendored
-# anyway on the 6.5.x line: since 6.2.38 `assert` includes lib/syscalls.cyr and
-# `alloc` includes lib/atomic.cyr, so the transitive closure of the four modules
-# below is 17 files (was 9 on 6.0.52). The stdlib SYS_* / O_* constants that
+# anyway: since 6.2.38 `assert` includes lib/syscalls.cyr and `alloc` includes
+# lib/atomic.cyr, so the transitive closure of the four modules below was 17
+# files on 6.5.36 / 6.6.2 (9 on 6.0.52). On 6.6.20 it is 19: `alloc` also names
+# lib/poison.cyr and lib/alloc_cx.cyr, both behind #ifdef (CYRIUS_POISON /
+# CYRIUS_TARGET_CX) and so compiled out of this build; `cyrius deps` vendors
+# them because it follows includes without evaluating #ifdef. `cyrius deps`
+# now also writes cyrius.lock (sha256 per vendored file + toolchain version)
+# for stdlib-only projects. The stdlib SYS_* / O_* constants that
 # arrive with it duplicate names encom already declares, but every colliding
 # value is identical and duplicate enum constants are a warn-only guardrail, so
 # the build stays clean. The runtime surface encom actually calls is still tiny:

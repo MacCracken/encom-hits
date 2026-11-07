@@ -128,7 +128,7 @@ fn draw_clear(fb) {
     #
     # NOTE: the right-nested grouping worked around a cyrius 6.0.x mis-fold of
     # a chained `enum * enum * literal` (it dropped the first factor → 960, not
-    # 307200). Fixed upstream in cyrius 6.1.37; kept as-is on the pinned 6.5.36.
+    # 307200). Fixed upstream in cyrius 6.1.37; kept as-is on the pinned toolchain.
     var p = fb;
     var end = fb + SCREEN_W * (SCREEN_H * 4);
     while (p < end) {

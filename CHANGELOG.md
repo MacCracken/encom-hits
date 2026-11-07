@@ -4,6 +4,38 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+## [0.7.2] — 2026-11-07
+
+Toolchain and stdlib refresh onto Cyrius 6.6.20. No game-logic or render changes.
+
+### Changed
+- **Toolchain `6.6.2` → `6.6.20`** — `cyrius.cyml` `[package].cyrius`. CI and release read the pin by grep, so the install step needed no workflow edit.
+- **Vendored stdlib re-synced to the 6.6.20 bundle.** `cyrius deps` regenerated `lib/` from `~/.cyrius/versions/6.6.20/lib`, and every vendored file now matches the bundled copy byte for byte. `[deps].stdlib` is unchanged, but the closure grew 17 → 19 files: `alloc` now includes `poison` (allocator poison mode, 6.6.18) and `alloc_cx` (the cyrius-x bytecode allocator, 6.6.6). Both includes sit behind `#ifdef` (`CYRIUS_POISON` / `CYRIUS_TARGET_CX`), which this build never defines, so they compile to nothing here. `string` now includes `alloc` itself, which is harmless because includes are include-once.
+
+### Added
+- **`cyrius.lock`.** On 6.6.20, `cyrius deps` writes a lockfile for stdlib-only projects too (6.6.2 wrote none). It records a sha256 for each vendored `lib/` file plus the toolchain version, and is tracked next to `cyrius.cyml`, the same way cyrius-polyomino does it. CI still runs bare `cyrius deps` with no `--verify`.
+
+### Fixed
+- **CHANGELOG ordering.** The 0.7.1 entry and the `[Unreleased]` heading had been appended below 0.6.0 at the foot of this file. Both now sit at the top in release order.
+- **Documentation drift left by 0.7.1.** That release moved the pin without the docs, so README's toolchain floor, `CLAUDE.md`'s version, the roadmap status line, and the two constant-fold `NOTE:` comments in `src/engine.cyr` / `src/draw.cyr` still said 6.5.36 / 0.7.0. The `NOTE:` comments now say "the pinned toolchain" so they stop going stale on every bump. The `cyrius.cyml` and CI comments about the vendored closure and the lockfile are also current.
+
+### Notes
+- Verified at the new pin: clean `cyrius deps` + build with no new warnings, `cyrius tests` 52 assertions across 4 suites, lint clean on all of `src/`, and `--ppm` rendering all 14 screens (splash 230,415 bytes).
+- **Render is byte-identical to the 6.6.2 build** in all 14 frames, in both cases tested:
+  - With no `scores.dat`, the frames are also `magick compare -metric AE` = 0 against `screenshots/*.png`.
+  - With a non-zero `scores.dat`, the frames exercise `draw_number` on the menu and all six title cards.
+- No frame-time benchmark this release. The stdlib calls the game makes at runtime (`alloc`, `memset`, `memcpy`) are unchanged in 6.6.20 apart from the compiled-out poison arms. The per-frame hot paths (`draw_clear`, `engine_blit`, `glow_apply`) are hand-rolled word loops that never call into the stdlib.
+- Binary 393,984 → 406,808 bytes (+12,824); static data 253,240 → 253,704; unreachable functions 208 → 251. All of this growth is the larger stdlib carried as dead code. No game code changed.
+
+## [0.7.1] — 2026-09-11
+
+### Changed
+
+- **Toolchain `6.5.36` → `6.6.2`.** No source change; the value form needed none.
+  Build, tests, and any bench/fuzz/distlib target the repo ships re-verified at the new pin.
+
 ## [0.7.0] — 2026-08-31
 
 Game-feel release. The 0.6.3 audit surfaced six defects that were deliberately
@@ -181,12 +213,3 @@ Six-game arcade collection. Shared engine, neon wireframe rendering, zero assets
 - File permissions 0644 on scores.dat and PPM output
 - Xorshift PRNG zero-trap guard
 - Bug spawn coordinates clamped to valid grid bounds
-
-## [Unreleased]
-
-## [0.7.1] - 2026-09-11
-
-### Changed
-
-- **Toolchain `6.5.36` → `6.6.2`.** No source change; the value form needed none.
-  Build, tests, and any bench/fuzz/distlib target the repo ships re-verified at the new pin.

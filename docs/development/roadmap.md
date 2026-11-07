@@ -1,6 +1,6 @@
 # ENCOM's Hits — Development Roadmap
 
-> **Status**: v0.7.0 (Cyrius 6.5.36 toolchain) — pre-1.0 hardening | **Last Updated**: 2026-08-31
+> **Status**: v0.7.2 (Cyrius 6.6.20 toolchain) — pre-1.0 hardening | **Last Updated**: 2026-11-07
 
 ---
 
@@ -133,7 +133,7 @@ were broken as designed; the display path could not hold 60fps on a normal monit
 
 **Exit criteria**: clean build + 27 assertions across 3 suites + all 14 `--ppm` frames, renders pixel-neutral except the MCP Cone fix. **Met.**
 
-## v0.7.0 — Game Feel (current)
+## v0.7.0 — Game Feel
 
 The six defects 0.6.3 deliberately held back, plus the paddle clamp from the
 same sweep. Each changes how a game *plays*, which is why they were separated
@@ -152,6 +152,19 @@ from the correctness pass.
 | 9 | CI lint promoted to a hard gate | Done | The 8 long lines it tolerated went away with the Tanks input rewrite |
 
 **Exit criteria**: clean build + 52 assertions across 4 suites + all 14 `--ppm` frames + lint-clean. **Met** — but see the play-test item below; this release is the one that most needs it.
+
+## v0.7.1 – v0.7.2 — Cyrius 6.6.x Toolchain (current)
+
+Toolchain + stdlib refreshes. No game-logic or render changes.
+
+| # | Item | Status | Notes |
+|---|------|--------|-------|
+| 1 | Toolchain pin 6.5.36 → 6.6.2 (v0.7.1) | Done | Continuation-line indentation reflowed; no logic change |
+| 2 | Toolchain pin 6.6.2 → 6.6.20 (v0.7.2) | Done | `cyrius.cyml` `[package].cyrius`; CI/release read it by grep |
+| 3 | Vendored stdlib re-synced to the 6.6.20 bundle | Done | `cyrius deps` closure 17 → 19 files (`alloc` now names `poison` + `alloc_cx`, both `#ifdef`-gated and compiled out); `cyrius.lock` is now written for stdlib-only projects and is tracked |
+| 4 | Doc/version sweep | Done | README toolchain floor, CLAUDE.md version, this roadmap, `NOTE:` comments made pin-agnostic, CHANGELOG 0.7.1 entry moved to the top |
+
+**Exit criteria**: clean build + 52 assertions across 4 suites + lint-clean + all 14 `--ppm` frames byte-identical to the previous pin (with and without `scores.dat`). **Met.**
 
 ## v0.7.x → v0.9.0 — Pre-1.0 Hardening (ongoing)
 
