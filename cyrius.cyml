@@ -5,7 +5,7 @@ description = "ENCOM's Hits — retro arcade game collection in Cyrius. Six game
 license = "GPL-3.0-only"
 repository = "https://github.com/MacCracken/encom-hits"
 language = "cyrius"
-cyrius = "6.6.20"
+cyrius = "6.7.9"
 
 [build]
 entry = "src/main.cyr"
@@ -20,7 +20,8 @@ output = "build/encom-hits"
 # `syscall` builtin directly, so `syscalls` is not listed here. It is vendored
 # anyway: since 6.2.38 `assert` includes lib/syscalls.cyr and `alloc` includes
 # lib/atomic.cyr, so the transitive closure of the four modules below was 17
-# files on 6.5.36 / 6.6.2 (9 on 6.0.52). On 6.6.20 it is 19: `alloc` also names
+# files on 6.5.36 / 6.6.2 (9 on 6.0.52). Since 6.6.20 it is 19 (still 19 on
+# 6.7.9): `alloc` also names
 # lib/poison.cyr and lib/alloc_cx.cyr, both behind #ifdef (CYRIUS_POISON /
 # CYRIUS_TARGET_CX) and so compiled out of this build; `cyrius deps` vendors
 # them because it follows includes without evaluating #ifdef. `cyrius deps`

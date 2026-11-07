@@ -1,6 +1,6 @@
 # ENCOM's Hits — Development Roadmap
 
-> **Status**: v0.7.2 (Cyrius 6.6.20 toolchain) — pre-1.0 hardening | **Last Updated**: 2026-11-07
+> **Status**: v0.8.0 (Cyrius 6.7.9 toolchain) — pre-1.0 hardening | **Last Updated**: 2026-11-07
 
 ---
 
@@ -153,7 +153,7 @@ from the correctness pass.
 
 **Exit criteria**: clean build + 52 assertions across 4 suites + all 14 `--ppm` frames + lint-clean. **Met** — but see the play-test item below; this release is the one that most needs it.
 
-## v0.7.1 – v0.7.2 — Cyrius 6.6.x Toolchain (current)
+## v0.7.1 – v0.7.2 — Cyrius 6.6.x Toolchain
 
 Toolchain + stdlib refreshes. No game-logic or render changes.
 
@@ -163,6 +163,18 @@ Toolchain + stdlib refreshes. No game-logic or render changes.
 | 2 | Toolchain pin 6.6.2 → 6.6.20 (v0.7.2) | Done | `cyrius.cyml` `[package].cyrius`; CI/release read it by grep |
 | 3 | Vendored stdlib re-synced to the 6.6.20 bundle | Done | `cyrius deps` closure 17 → 19 files (`alloc` now names `poison` + `alloc_cx`, both `#ifdef`-gated and compiled out); `cyrius.lock` is now written for stdlib-only projects and is tracked |
 | 4 | Doc/version sweep | Done | README toolchain floor, CLAUDE.md version, this roadmap, `NOTE:` comments made pin-agnostic, CHANGELOG 0.7.1 entry moved to the top |
+
+**Exit criteria**: clean build + 52 assertions across 4 suites + lint-clean + all 14 `--ppm` frames byte-identical to the previous pin (with and without `scores.dat`). **Met.**
+
+## v0.8.0 — Cyrius 6.7.9 Toolchain (current)
+
+Moves onto the 6.7.x toolchain line. No game-logic or render changes.
+
+| # | Item | Status | Notes |
+|---|------|--------|-------|
+| 1 | Toolchain pin 6.6.20 → 6.7.9 | Done | `cyrius.cyml` `[package].cyrius`; CI/release read it by grep |
+| 2 | Vendored stdlib + `cyrius.lock` re-synced to the 6.7.9 bundle | Done | Same 19-file closure. The only change compiled on x86_64 Linux is a new, unused `sys_ppoll` / `SYS_PPOLL` (no clash with encom's own `SYS_*` enum) |
+| 3 | Doc/version sweep | Done | README toolchain floor, CLAUDE.md version, this roadmap, CHANGELOG |
 
 **Exit criteria**: clean build + 52 assertions across 4 suites + lint-clean + all 14 `--ppm` frames byte-identical to the previous pin (with and without `scores.dat`). **Met.**
 

@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.8.0] — 2026-11-07
+
+Moves onto the Cyrius 6.7.x toolchain line. No game-logic or render changes.
+
+### Changed
+- **Toolchain `6.6.20` → `6.7.9`** — `cyrius.cyml` `[package].cyrius`. CI and release read the pin by grep, so the install step needed no workflow edit.
+- **Vendored stdlib and `cyrius.lock` re-synced to the 6.7.9 bundle.** `cyrius deps` regenerated `lib/` from `~/.cyrius/versions/6.7.9/lib`, and all 19 files match the bundled copies byte for byte. The closure is the same 19 files as 0.7.2. Thirteen of them changed, mostly in comments: internal advisory IDs (`CVE-nn` → `CYRIUS-2026-nnnn` or a plain description), plus a header note that the bootstrap compiler builds these files. The code changes are:
+  - **`sys_ppoll` / `SYS_PPOLL = 271`** (6.7.9), in `syscalls_x86_64_linux` and `syscalls_linux_common`. encom declares its own `SYS_*` enum in `src/engine.cyr`, and that enum has no `SYS_PPOLL`, so nothing collides. The wrapper is never called here.
+  - **`fnptr`:** indirect calls with 7 or 8 arguments now pass them in the order a Cyrius callee reads them; arguments 7 and 8 used to arrive swapped. encom makes no `fnptr` calls. The file is vendored only because `vec` and `alloc` include it.
+  - **macOS, Windows, agnos and aarch64 syscall files:** each gains its `sys_ppoll` entry or stub, plus some annotations and cleanup. None of these files is compiled on an x86_64 Linux build.
+
+### Notes
+- Verified at the new pin: clean `cyrius deps` + build with no new warnings, `cyrius tests` 52 assertions across 4 suites, lint clean on all of `src/`, and `--ppm` rendering all 14 screens (splash 230,415 bytes).
+- **Render is byte-identical to the 6.6.20 build** in all 14 frames, both with no `scores.dat` (where the frames are also `magick compare -metric AE` = 0 against `screenshots/*.png`) and with a non-zero `scores.dat`, which exercises `draw_number` on the menu and all six title cards.
+- No frame-time benchmark this release. The stdlib functions the game calls at runtime (`alloc`, `alloc_init`, `memset`, `memcpy`, `strlen`) are unchanged from 6.6.20.
+- Binary size is unchanged at 406,808 bytes, but the contents differ: code offsets shift around the new dead `sys_ppoll`. Static data is unchanged at 253,704 bytes, and unreachable functions went 251 → 252.
+
 ## [0.7.2] — 2026-11-07
 
 Toolchain and stdlib refresh onto Cyrius 6.6.20. No game-logic or render changes.
