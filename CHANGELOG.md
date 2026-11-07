@@ -6,6 +6,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.8.1] — 2026-11-07
+
+Toolchain and stdlib refresh onto Cyrius 6.7.18. No game-logic or render changes. One CI fix was required.
+
+### Changed
+- **Toolchain `6.7.9` → `6.7.18`** — `cyrius.cyml` `[package].cyrius`. CI and release read the pin by grep, so the install step needed no workflow edit.
+- **Vendored stdlib and `cyrius.lock` re-synced to the 6.7.18 bundle.** `cyrius deps` regenerated `lib/` from `~/.cyrius/versions/6.7.18/lib`, and all 19 files match the bundled copies byte for byte. The closure is the same 19 files. Of the 13 files that changed, only three are compiled on x86_64 Linux:
+  - **`syscalls_x86_64_linux`:** a named `SYS_POLL = 7` (6.7.14), plus `EPOLL_EVENT_SIZE` and the `epoll_event_*` accessors.
+  - **`syscalls_linux_common`:** `fd_wait_ready` and its siblings now issue `SYS_POLL` instead of a bare `7`. There are also macOS-only arms for `mknodat` and `sigprocmask`.
+  - **`vec`:** the six bounds, overflow and allocation abort paths now go through a single `_vec_abort`, with an optional `_vec_die_hook` called first.
+
+  encom never calls any of these. None of the new names (`SYS_POLL`, `EPOLL_*`, `epoll_event_*`, `_vec_abort`, `_vec_die_hook`) appears in `src/` or `tests/`, so nothing collides with encom's own `SYS_*` enum. The other ten files are either comment-only or apply to targets that are never compiled here: Windows, agnos, macOS, aarch64, and the cyrius-x allocator.
+
+### Fixed
+- **CI's Test step called a command that no longer exists.** `cyrius tests` was removed in Cyrius 6.7.12 ("use `cyrius test <dir>`"), so at the new pin the step printed only that error. Its `, 0 failed` check would then have failed the job. The step now runs `cyrius test tests`. The output format is unchanged (one line per suite, then `N passed, 0 failed`), so the existing summary and suite-count checks work as they are, and they pass locally at 4 suites. The directory is named on purpose. Bare `cyrius test` also counts the assertion-free `[build].test` entry (`src/test.cyr`), which would report 5 suites against 4 `.tcyr` files. The step's comment, which still described the 0.6.3 suite list, now names all four suites.
+- **`CONTRIBUTING.md` ran only one of the four suites.** Its build block had `cyrius test tests/encom-hits.tcyr`; it now runs `cyrius test tests`.
+
+### Notes
+- Verified at the new pin: clean `cyrius deps` + build with no new warnings, `cyrius test tests` 52 assertions across 4 suites, lint clean on all of `src/`, and `--ppm` rendering all 14 screens (splash 230,415 bytes).
+- **Render is byte-identical to the 6.7.9 build** in all 14 frames, both with no `scores.dat` (where the frames are also `magick compare -metric AE` = 0 against `screenshots/*.png`) and with a non-zero `scores.dat`, which exercises `draw_number` on the menu and all six title cards.
+- No frame-time benchmark this release. The stdlib calls the game makes at runtime (`alloc`, `memset`, `memcpy`) are unchanged from 6.7.9.
+- **Binary 406,808 → 402,728 bytes (−4,080), and all of it comes from the compiler.** Building with the 6.7.18 compiler against the old 6.7.9 stdlib gives the same 402,728 bytes, so the stdlib changes are size-neutral. Static data went 253,704 → 253,720 and unreachable functions 252 → 256.
+
 ## [0.8.0] — 2026-11-07
 
 Moves onto the Cyrius 6.7.x toolchain line. No game-logic or render changes.

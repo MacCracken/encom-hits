@@ -64,14 +64,18 @@ jobs:
           [ "$FAIL" -eq 0 ] || { echo "::error::lint is a hard gate — fix the warnings above"; exit 1; }
 
       - name: Test
-        # `cyrius tests` auto-discovers every .tcyr under tests/ — as of 0.6.3
-        # that is the constants suite plus two regression suites (engine-blit,
-        # mcpcone-rotation) covering paths the --ppm smoke test cannot reach.
+        # `cyrius test tests` auto-discovers every .tcyr under tests/ — the
+        # constants suite plus three regression suites (engine-blit,
+        # mcpcone-rotation, lightcycles-headon) covering paths the --ppm smoke
+        # test cannot reach. The directory is named on purpose: the old
+        # `cyrius tests` spelling was removed in Cyrius 6.7.12, and bare
+        # `cyrius test` also counts the assertion-free [build].test entry
+        # (src/test.cyr), which would throw off the suite count below.
         # Assert on the per-suite lines too, so a suite that runs zero
         # assertions or a newly added file that never gets discovered still
         # fails the job rather than passing silently.
         run: |
-          cyrius tests 2>&1 | tee /tmp/test_output
+          cyrius test tests 2>&1 | tee /tmp/test_output
           grep -q ', 0 failed' /tmp/test_output || { echo "::error::test summary missing"; exit 1; }
           if grep -E '[1-9][0-9]* failed' /tmp/test_output; then
             echo "::error::one or more suites reported failures"; exit 1

@@ -23,7 +23,7 @@ See [AGNOS First-Party Standards](https://github.com/MacCracken/agnosticos/blob/
 ```sh
 cyrius deps                                   # vendor stdlib into lib/ (first build only)
 cyrius build src/main.cyr build/encom-hits
-cyrius test tests/encom-hits.tcyr             # run the unit suite
+cyrius test tests                             # run every .tcyr suite under tests/
 ```
 
 ## License

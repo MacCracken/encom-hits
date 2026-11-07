@@ -1,6 +1,6 @@
 # ENCOM's Hits — Development Roadmap
 
-> **Status**: v0.8.0 (Cyrius 6.7.9 toolchain) — pre-1.0 hardening | **Last Updated**: 2026-11-07
+> **Status**: v0.8.1 (Cyrius 6.7.18 toolchain) — pre-1.0 hardening | **Last Updated**: 2026-11-07
 
 ---
 
@@ -166,17 +166,19 @@ Toolchain + stdlib refreshes. No game-logic or render changes.
 
 **Exit criteria**: clean build + 52 assertions across 4 suites + lint-clean + all 14 `--ppm` frames byte-identical to the previous pin (with and without `scores.dat`). **Met.**
 
-## v0.8.0 — Cyrius 6.7.9 Toolchain (current)
+## v0.8.0 – v0.8.1 — Cyrius 6.7.x Toolchain (current)
 
 Moves onto the 6.7.x toolchain line. No game-logic or render changes.
 
 | # | Item | Status | Notes |
 |---|------|--------|-------|
-| 1 | Toolchain pin 6.6.20 → 6.7.9 | Done | `cyrius.cyml` `[package].cyrius`; CI/release read it by grep |
-| 2 | Vendored stdlib + `cyrius.lock` re-synced to the 6.7.9 bundle | Done | Same 19-file closure. The only change compiled on x86_64 Linux is a new, unused `sys_ppoll` / `SYS_PPOLL` (no clash with encom's own `SYS_*` enum) |
-| 3 | Doc/version sweep | Done | README toolchain floor, CLAUDE.md version, this roadmap, CHANGELOG |
+| 1 | Toolchain pin 6.6.20 → 6.7.9 (v0.8.0) | Done | `cyrius.cyml` `[package].cyrius`; CI/release read it by grep |
+| 2 | Toolchain pin 6.7.9 → 6.7.18 (v0.8.1) | Done | The binary is 4,080 bytes smaller, all of it from the 6.7.18 compiler |
+| 3 | Vendored stdlib + `cyrius.lock` re-synced to each bundle | Done | Same 19-file closure throughout. Each pin's only Linux-compiled changes are unused additions (`sys_ppoll`, `SYS_POLL`, epoll event helpers) and a refactor of `vec`'s abort paths. None of them clashes with encom's own `SYS_*` enum |
+| 4 | CI test step off the removed `cyrius tests` (v0.8.1) | Done | That spelling was removed in 6.7.12 and would have failed the job. CI now runs `cyrius test tests`, which keeps the same output format and suite-count check |
+| 5 | Doc/version sweep | Done | README toolchain floor, CLAUDE.md version, CONTRIBUTING test command, this roadmap, CHANGELOG |
 
-**Exit criteria**: clean build + 52 assertions across 4 suites + lint-clean + all 14 `--ppm` frames byte-identical to the previous pin (with and without `scores.dat`). **Met.**
+**Exit criteria**: clean build + 52 assertions across 4 suites + lint-clean + all 14 `--ppm` frames byte-identical to the previous pin (with and without `scores.dat`). **Met** at both pins.
 
 ## v0.7.x → v0.9.0 — Pre-1.0 Hardening (ongoing)
 
