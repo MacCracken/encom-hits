@@ -1,0 +1,135 @@
+# encom-hits -- text.cyr
+# 3x5 bitmap font: every glyph is a 3-wide, 5-tall grid of filled squares,
+# `scale` pixels each, so there is still no font asset. Covers 0-9, A-Z, space
+# and - . : | '. At this size some glyphs coincide: M and N, O and 0, S and 5,
+# G and 6.
+
+fn draw_char(fb, ch, cx, cy, color, scale) {
+    # Minimal font -- draw characters as small line patterns
+    # For now, use line-based block letters (3x5 grid, each pixel = scale px)
+
+    # Map ASCII to simple bitmap patterns
+    # Each pattern is 5 rows of 3 bits (stored as 5 i64 values)
+    var r0 = 0;
+    var r1 = 0;
+    var r2 = 0;
+    var r3 = 0;
+    var r4 = 0;
+
+    # Digits
+    if (ch == 48) { r0 = 7; r1 = 5; r2 = 5; r3 = 5; r4 = 7; }  # 0
+    if (ch == 49) { r0 = 2; r1 = 6; r2 = 2; r3 = 2; r4 = 7; }  # 1
+    if (ch == 50) { r0 = 7; r1 = 1; r2 = 7; r3 = 4; r4 = 7; }  # 2
+    if (ch == 51) { r0 = 7; r1 = 1; r2 = 7; r3 = 1; r4 = 7; }  # 3
+    if (ch == 52) { r0 = 5; r1 = 5; r2 = 7; r3 = 1; r4 = 1; }  # 4
+    if (ch == 53) { r0 = 7; r1 = 4; r2 = 7; r3 = 1; r4 = 7; }  # 5
+    if (ch == 54) { r0 = 7; r1 = 4; r2 = 7; r3 = 5; r4 = 7; }  # 6
+    if (ch == 55) { r0 = 7; r1 = 1; r2 = 1; r3 = 1; r4 = 1; }  # 7
+    if (ch == 56) { r0 = 7; r1 = 5; r2 = 7; r3 = 5; r4 = 7; }  # 8
+    if (ch == 57) { r0 = 7; r1 = 5; r2 = 7; r3 = 1; r4 = 7; }  # 9
+
+    # Letters (uppercase)
+    if (ch == 69) { r0 = 7; r1 = 4; r2 = 7; r3 = 4; r4 = 7; }  # E
+    if (ch == 78) { r0 = 5; r1 = 7; r2 = 7; r3 = 5; r4 = 5; }  # N
+    if (ch == 67) { r0 = 7; r1 = 4; r2 = 4; r3 = 4; r4 = 7; }  # C
+    if (ch == 79) { r0 = 7; r1 = 5; r2 = 5; r3 = 5; r4 = 7; }  # O
+    if (ch == 77) { r0 = 5; r1 = 7; r2 = 7; r3 = 5; r4 = 5; }  # M (same as N for 3px)
+    if (ch == 72) { r0 = 5; r1 = 5; r2 = 7; r3 = 5; r4 = 5; }  # H
+    if (ch == 73) { r0 = 7; r1 = 2; r2 = 2; r3 = 2; r4 = 7; }  # I
+    if (ch == 84) { r0 = 7; r1 = 2; r2 = 2; r3 = 2; r4 = 2; }  # T
+    if (ch == 83) { r0 = 7; r1 = 4; r2 = 7; r3 = 1; r4 = 7; }  # S
+    if (ch == 76) { r0 = 4; r1 = 4; r2 = 4; r3 = 4; r4 = 7; }  # L
+    if (ch == 71) { r0 = 7; r1 = 4; r2 = 7; r3 = 5; r4 = 7; }  # G
+    if (ch == 82) { r0 = 7; r1 = 5; r2 = 7; r3 = 6; r4 = 5; }  # R
+    if (ch == 68) { r0 = 6; r1 = 5; r2 = 5; r3 = 5; r4 = 6; }  # D
+    if (ch == 66) { r0 = 6; r1 = 5; r2 = 6; r3 = 5; r4 = 6; }  # B
+    if (ch == 85) { r0 = 5; r1 = 5; r2 = 5; r3 = 5; r4 = 7; }  # U
+    if (ch == 75) { r0 = 5; r1 = 5; r2 = 6; r3 = 5; r4 = 5; }  # K
+    if (ch == 65) { r0 = 7; r1 = 5; r2 = 7; r3 = 5; r4 = 5; }  # A
+    if (ch == 80) { r0 = 7; r1 = 5; r2 = 7; r3 = 4; r4 = 4; }  # P
+    if (ch == 87) { r0 = 5; r1 = 5; r2 = 7; r3 = 7; r4 = 5; }  # W
+    if (ch == 89) { r0 = 5; r1 = 5; r2 = 7; r3 = 2; r4 = 2; }  # Y
+    if (ch == 70) { r0 = 7; r1 = 4; r2 = 7; r3 = 4; r4 = 4; }  # F
+    if (ch == 88) { r0 = 5; r1 = 5; r2 = 2; r3 = 5; r4 = 5; }  # X
+    # J Q V Z were missing until 0.8.3, so they drew nothing: the menu footer
+    # read "TO UIT", the result card "GAME O ER", MCP Cone's loss "DERE  ED".
+    if (ch == 74) { r0 = 1; r1 = 1; r2 = 1; r3 = 5; r4 = 7; }  # J
+    if (ch == 81) { r0 = 7; r1 = 5; r2 = 5; r3 = 6; r4 = 3; }  # Q
+    if (ch == 86) { r0 = 5; r1 = 5; r2 = 5; r3 = 5; r4 = 2; }  # V
+    if (ch == 90) { r0 = 7; r1 = 1; r2 = 2; r3 = 4; r4 = 7; }  # Z
+
+    # Space and punctuation
+    if (ch == 32)  { return 0; }  # space: skip
+    if (ch == 45)  { r0 = 0; r1 = 0; r2 = 7; r3 = 0; r4 = 0; }  # -
+    if (ch == 46)  { r0 = 0; r1 = 0; r2 = 0; r3 = 0; r4 = 2; }  # .
+    if (ch == 58)  { r0 = 0; r1 = 2; r2 = 0; r3 = 2; r4 = 0; }  # :
+    if (ch == 124) { r0 = 2; r1 = 2; r2 = 2; r3 = 2; r4 = 2; }  # |
+    if (ch == 39)  { r0 = 2; r1 = 2; r2 = 0; r3 = 0; r4 = 0; }  # '
+
+    # Draw the 3x5 pattern
+    var row = 0;
+    while (row < 5) {
+        var bits = r0;
+        if (row == 1) { bits = r1; }
+        if (row == 2) { bits = r2; }
+        if (row == 3) { bits = r3; }
+        if (row == 4) { bits = r4; }
+
+        var col = 0;
+        while (col < 3) {
+            if ((bits >> (2 - col)) & 1) {
+                draw_filled_rect(fb, cx + col * scale, cy + row * scale,
+                  scale, scale, color);
+            }
+            col = col + 1;
+        }
+        row = row + 1;
+    }
+    return 0;
+}
+
+fn draw_text(fb, text, x, y, color, scale) {
+    var i = 0;
+    var ch = load8(text + i);
+    var cx = x;
+    while (ch != 0) {
+        draw_char(fb, ch, cx, y, color, scale);
+        cx = cx + scale * 4;  # 3px char + 1px gap
+        i = i + 1;
+        ch = load8(text + i);
+    }
+    return 0;
+}
+
+# Digit scratch for draw_number — must be file-scope: a function-local
+# `var X[N]` reserves only one 8-byte slot, so writing 8 slots through it
+# would smash the frame. draw_number does not recurse (it only calls
+# draw_char), so a single static is safe.
+var _draw_digits[8];
+
+fn draw_number(fb, num, x, y, color, scale) {
+    if (num == 0) {
+        draw_char(fb, 48, x, y, color, scale);
+        return 0;
+    }
+    var count = 0;
+    var n = num;
+    if (n < 0) { n = 0 - n; }
+    while (n > 0) {
+        if (count >= 8) { n = 0; }
+        else {
+            store64(&_draw_digits + count * 8, n % 10);
+            count = count + 1;
+            n = n / 10;
+        }
+    }
+    var i = count - 1;
+    var cx = x;
+    while (i >= 0) {
+        var d = load64(&_draw_digits + i * 8);
+        draw_char(fb, 48 + d, cx, y, color, scale);
+        cx = cx + scale * 4;
+        i = i - 1;
+    }
+    return 0;
+}

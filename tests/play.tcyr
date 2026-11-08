@@ -1,0 +1,180 @@
+# play -- cover for the play layer split out of main.cyr in 0.8.3.
+#
+# Pins down: Light Cycles arrows steer player 1, not the AI's cycle (through
+# 0.8.2 one player could steer both); the shared simulation step; menu launch
+# from raw key bytes (Enter as CR, a number key, an F-key that must do
+# nothing); ESC back to the menu from play and from a result card; and a title
+# card running down into a clean game. No case finishes a run with a score
+# above zero, so nothing here writes scores.dat.
+
+include "src/types.cyr"
+include "src/engine.cyr"
+include "src/input.cyr"
+include "src/draw.cyr"
+include "src/text.cyr"
+include "src/lightcycles.cyr"
+include "src/grid.cyr"
+include "src/gridbugs.cyr"
+include "src/ai.cyr"
+include "src/tanks.cyr"
+include "src/mcpcone.cyr"
+include "src/interceptors.cyr"
+include "src/discs.cyr"
+include "src/glow.cyr"
+include "src/scores.cyr"
+include "src/screens.cyr"
+include "src/play.cyr"
+
+var fb = 0;
+
+fn press(k) {
+    _keys_clear();
+    _key_set(k, 1);
+    return 0;
+}
+
+# Feed raw bytes as one frame's input ('^' stands for ESC).
+fn type_bytes(s) {
+    _keys_clear();
+    var i = 0;
+    var ch = load8(s);
+    while (ch != 0) {
+        if (ch == 94) { input_feed(27); }
+        else { input_feed(ch); }
+        i = i + 1;
+        ch = load8(s + i);
+    }
+    input_end_frame();
+    return 0;
+}
+
+fn at_menu() {
+    current_game = GAME_MENU;
+    title_active = 0;
+    play_done = 0;
+    play_ticks = 0;
+    return 0;
+}
+
+fn test_lightcycles_arrows_steer_p1(): i64 {
+    lc_init();
+    press(KEY_DOWN);
+    lc_handle_input();
+    assert_eq(lc_p1_dir, DIR_DOWN, "Down arrow turns player 1");
+    assert_eq(lc_p2_dir, DIR_LEFT, "and leaves the AI's cycle alone");
+
+    lc_init();
+    press(KEY_UP);
+    lc_handle_input();
+    assert_eq(lc_p1_dir, DIR_UP, "Up arrow turns player 1");
+    assert_eq(lc_p2_dir, DIR_LEFT, "AI cycle still untouched");
+
+    lc_init();
+    press(KEY_S);
+    lc_handle_input();
+    assert_eq(lc_p1_dir, DIR_DOWN, "WASD still steers player 1");
+    return 0;
+}
+
+fn test_play_step_cadence(): i64 {
+    play_ticks = 0;
+    play_done = 0;
+    var due = 0;
+    var i = 0;
+    while (i < 12) {
+        due = due + _play_step(4);
+        i = i + 1;
+    }
+    assert_eq(due, 3, "rate 4: one tick every fourth frame");
+    play_done = 1;
+    due = 0;
+    i = 0;
+    while (i < 12) {
+        due = due + _play_step(4);
+        i = i + 1;
+    }
+    assert_eq(due, 0, "no ticks once the run is over");
+    play_done = 0;
+    return 0;
+}
+
+fn test_menu_launch_from_bytes(): i64 {
+    at_menu();
+    menu_selection = 3;
+    type_bytes("\r");
+    play_frame(fb);
+    assert_eq(title_active, 1, "Enter (CR) starts a title card");
+    assert_eq(pending_game, GAME_TANKS, "for the highlighted game");
+
+    at_menu();
+    type_bytes("5");
+    play_frame(fb);
+    assert_eq(pending_game, GAME_INTERCEPTORS, "a number key launches its game");
+    assert_eq(menu_selection, 5, "and highlights it");
+
+    at_menu();
+    menu_selection = 1;
+    type_bytes("^[15~");
+    play_frame(fb);
+    assert_eq(title_active, 0, "F5 launches nothing");
+    assert_eq(menu_selection, 1, "and moves nothing");
+
+    at_menu();
+    menu_selection = 1;
+    type_bytes("^[B");
+    play_frame(fb);
+    assert_eq(menu_selection, 2, "Down arrow moves the highlight");
+    assert_eq(title_active, 0, "without launching");
+    return 0;
+}
+
+fn test_escape_to_menu(): i64 {
+    at_menu();
+    pending_game = GAME_GRIDBUGS;
+    _title_start_game();
+    assert_eq(current_game, GAME_GRIDBUGS, "title card hands over to the game");
+    press(KEY_ESC);
+    play_frame(fb);
+    assert_eq(current_game, GAME_MENU, "ESC mid-run returns to the menu");
+
+    pending_game = GAME_MCPCONE;
+    _title_start_game();
+    play_done = 1;
+    play_ticks = 2;
+    press(KEY_ESC);
+    play_frame(fb);
+    assert_eq(current_game, GAME_MENU, "ESC from the result card returns to the menu");
+    assert_eq(play_done, 0, "and clears the finished flag");
+    assert_eq(play_ticks, 0, "and the tick phase");
+    return 0;
+}
+
+fn test_title_card_runs_down(): i64 {
+    at_menu();
+    game_score = 77;
+    _menu_launch(GAME_DISCS);
+    _keys_clear();
+    var f = 0;
+    while (f < 90) {
+        play_frame(fb);
+        f = f + 1;
+    }
+    assert_eq(title_active, 0, "the title card ends after 90 frames");
+    assert_eq(current_game, GAME_DISCS, "and starts the pending game");
+    assert_eq(game_score, 0, "with the score reset");
+    return 0;
+}
+
+fn main(): i64 {
+    alloc_init();
+    fb = alloc(SCREEN_W * (SCREEN_H * 4));
+    test_lightcycles_arrows_steer_p1();
+    test_play_step_cadence();
+    test_menu_launch_from_bytes();
+    test_escape_to_menu();
+    test_title_card_runs_down();
+    return assert_summary();
+}
+
+var rc = main();
+syscall(60, rc);

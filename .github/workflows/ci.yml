@@ -70,7 +70,7 @@ jobs:
         # `cyrius fmt --check` exits 1 and names the first differing line.
         run: |
           FAIL=0
-          for f in src/*.cyr tests/*.tcyr; do
+          for f in src/*.cyr tests/*.tcyr benches/*.bcyr; do
             cyrius fmt --check "$f" || { echo "::error file=$f::not cyrius fmt clean (fix: cyrius fmt $f)"; FAIL=1; }
           done
           [ "$FAIL" -eq 0 ] || { echo "::error::fmt is a hard gate — see the files above"; exit 1; }
@@ -82,8 +82,12 @@ jobs:
         # values, so an aarch64 build issued getxattr instead of lseek and passed
         # O_NOFOLLOW as O_LARGEFILE. The aarch64 compiler reports exactly that
         # class ("conflicting value" on a redeclared stdlib constant, "raw
-        # syscall" on an x86_64 number it cannot translate). Build-only: the
-        # binary is not run here or shipped by release.yml.
+        # syscall" on an x86_64 number it cannot translate). It only catches what
+        # the compiler knows to warn about: in 0.8.3 a raw syscall(20, ...)
+        # (x86_64 writev) built for aarch64 with no warning and ran as
+        # epoll_create1. So a NEW raw syscall number still needs a
+        # `qemu-aarch64 -strace` check by hand. Build-only: the binary is not
+        # run here or shipped by release.yml.
         run: |
           set -o pipefail
           cyrius build --aarch64 src/main.cyr build/${{ github.event.repository.name }}-aarch64 2>&1 | tee /tmp/a64_build
@@ -92,13 +96,13 @@ jobs:
           fi
 
       - name: Test
-        # `cyrius test tests` auto-discovers every .tcyr under tests/ — the
-        # constants suite plus three regression suites (engine-blit,
-        # mcpcone-rotation, lightcycles-headon) covering paths the --ppm smoke
-        # test cannot reach. The directory is named on purpose: the old
-        # `cyrius tests` spelling was removed in Cyrius 6.7.12, and bare
-        # `cyrius test` also counts the assertion-free [build].test entry
-        # (src/test.cyr), which would throw off the suite count below.
+        # `cyrius test tests` auto-discovers every .tcyr under tests/: the
+        # constants suite plus regression suites for paths the frame check
+        # cannot reach (the fb0 blit, the keyboard parser, the play layer, the
+        # tank shots, the font, MCP Cone rotation, Light Cycles head-ons). The
+        # old `cyrius tests` spelling was removed in Cyrius 6.7.12. Since 0.8.3
+        # there is no [build].test entry, so bare `cyrius test` runs the same
+        # suites; the directory is still named so the count below is exact.
         # Assert on the per-suite lines too, so a suite that runs zero
         # assertions or a newly added file that never gets discovered still
         # fails the job rather than passing silently.
@@ -113,19 +117,22 @@ jobs:
             echo "::error::expected $SUITES suites to run; summary was: $(tail -1 /tmp/test_output)"; exit 1
           }
 
-      - name: Smoke test (headless render)
-        # encom-hits is a graphical app — the unit suite can't exercise the
-        # framebuffer/render path, so this runs the binary's --ppm screenshot
-        # mode (which falls back to PPM when /dev/fb0 is absent, as in CI) and
-        # asserts it exits clean and writes a correctly-sized splash frame
-        # (P6 320x240 = 230415 bytes). Guards the class of render/sizing bug
-        # that a build + unit test alone would miss.
-        run: |
-          ./build/${{ github.event.repository.name }} --ppm
-          test -s /tmp/encom_splash.ppm
-          SIZE=$(wc -c < /tmp/encom_splash.ppm)
-          test "$SIZE" -eq 230415 || { echo "::error::splash.ppm is $SIZE bytes, expected 230415 (320x240 P6) — framebuffer under-sized?"; exit 1; }
-          echo "OK: --ppm rendered $(ls /tmp/encom_*.ppm | wc -l) screens, splash $SIZE bytes"
+      - name: Frames (headless render)
+        # encom-hits is a graphical app, so the unit suites cannot see what it
+        # draws. tests/frames.sh renders all 14 --ppm reference frames twice,
+        # once with no scores.dat and once with a fixture scores.dat (so the
+        # menu and title cards draw high scores and the load clamp runs), and
+        # checks all 28 against tests/frames.sha256. Until 0.8.3 this step only
+        # checked the splash file's size, and the committed screenshots were
+        # captured without scores, so draw_number was never exercised: 0.6.3
+        # found a live rendering bug hiding there.
+        run: sh tests/frames.sh build/${{ github.event.repository.name }}
+
+      - name: Bench (informational)
+        # Per-game frame cost (render + glow), the two heavy AI steps and the
+        # 2560x1440 present path. Not gated: runner timings vary too much to
+        # hold a threshold. It does keep benches/ building and running.
+        run: cyrius bench benches/frame.bcyr
 
   docs:
     name: Documentation

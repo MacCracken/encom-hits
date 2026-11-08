@@ -1,0 +1,329 @@
+# encom-hits -- play.cyr
+# The play layer: per-game input mapping, the fixed-rate simulation step, the
+# result card, and play_frame — one frame of whatever is on screen.
+#
+# Each game simulates at its own rate, a whole number of 60 Hz frames per
+# tick, while input is read and the screen redrawn every frame.
+enum TickRate {
+    LC_TICK_RATE   = 6;    # 10 ticks/s
+    GB_TICK_RATE   = 10;   # 6 ticks/s
+    TK_TICK_RATE   = 4;    # 15 ticks/s
+    MCP_TICK_RATE  = 3;    # 20 ticks/s
+    INT_TICK_RATE  = 3;    # 20 ticks/s
+    DISC_TICK_RATE = 2;    # 30 ticks/s
+}
+
+# Shared by every game, because only one runs at a time. Until 0.8.3 each game
+# kept its own tick counter, rate and done flag (18 globals), and each game's
+# tick repeated the same ESC-to-menu block twice; play_frame now owns that.
+var play_ticks = 0;    # frames since the last simulation tick
+var play_done = 0;     # 1 once the run has ended and its result card is up
+
+# 1 when a simulation tick is due this frame: every `rate` frames, and never
+# once the run is over.
+fn _play_step(rate) {
+    play_ticks = play_ticks + 1;
+    if (play_ticks < rate) { return 0; }
+    play_ticks = 0;
+    if (play_done == 1) { return 0; }
+    return 1;
+}
+
+# End the run: bank game_score as the game's best if it beat it, and put the
+# result card up.
+fn _play_finish(game) {
+    scores_update(game, game_score);
+    play_done = 1;
+    return 0;
+}
+
+# Light Cycles input handling. Player 2 is always the AI, so the arrow keys
+# steer player 1 exactly as WASD does, as they do in every other game. Through
+# 0.8.2 the arrows set player 2's direction one line before the AI picked its
+# own, and ai_lightcycles keeps its current direction whenever that leaves at
+# least half its best open run: a single player could steer the opponent's
+# cycle into walls.
+fn lc_handle_input() {
+    if (input_key(KEY_W) == 1) { lc_set_direction(1, DIR_UP); }
+    if (input_key(KEY_S) == 1) { lc_set_direction(1, DIR_DOWN); }
+    if (input_key(KEY_A) == 1) { lc_set_direction(1, DIR_LEFT); }
+    if (input_key(KEY_D) == 1) { lc_set_direction(1, DIR_RIGHT); }
+    if (input_key(KEY_UP) == 1) { lc_set_direction(1, DIR_UP); }
+    if (input_key(KEY_DOWN) == 1) { lc_set_direction(1, DIR_DOWN); }
+    if (input_key(KEY_LEFT) == 1) { lc_set_direction(1, DIR_LEFT); }
+    if (input_key(KEY_RIGHT) == 1) { lc_set_direction(1, DIR_RIGHT); }
+    return 0;
+}
+
+# Grid Bugs input handling
+fn gb_handle_input() {
+    # Player: arrow keys or WASD
+    if (input_key(KEY_W) == 1) { gb_player_dir = DIR_UP; }
+    if (input_key(KEY_S) == 1) { gb_player_dir = DIR_DOWN; }
+    if (input_key(KEY_A) == 1) { gb_player_dir = DIR_LEFT; }
+    if (input_key(KEY_D) == 1) { gb_player_dir = DIR_RIGHT; }
+    if (input_key(KEY_UP) == 1) { gb_player_dir = DIR_UP; }
+    if (input_key(KEY_DOWN) == 1) { gb_player_dir = DIR_DOWN; }
+    if (input_key(KEY_LEFT) == 1) { gb_player_dir = DIR_LEFT; }
+    if (input_key(KEY_RIGHT) == 1) { gb_player_dir = DIR_RIGHT; }
+    return 0;
+}
+
+# Light Cycles: 10 points per tick survived, 1000 for the win.
+fn lc_game_tick(fb) {
+    lc_handle_input();
+
+    # AI controls Player 2
+    if (lc_p2_alive) {
+        var ai_dir = ai_lightcycles(lc_p2_x, lc_p2_y, lc_p2_dir, LC_GRID_W, LC_GRID_H);
+        if (ai_dir != DIR_NONE) {
+            lc_set_direction(2, ai_dir);
+        }
+    }
+
+    if (_play_step(LC_TICK_RATE) == 1) {
+        lc_update();
+        game_score = game_score + 10;
+        if (lc_game_over() == 1) {
+            if (lc_winner() == 1) { game_score = game_score + 1000; }
+            _play_finish(GAME_LIGHTCYCLES);
+        }
+    }
+
+    lc_render(fb);
+    if (play_done == 1) { gameover_render(fb, lc_winner()); }
+    return 0;
+}
+
+# Grid Bugs: 500 points per level for reaching the tower.
+fn gb_game_tick(fb) {
+    gb_handle_input();
+
+    if (_play_step(GB_TICK_RATE) == 1) {
+        gb_update();
+        if (gb_player_alive == 0) {
+            _play_finish(GAME_GRIDBUGS);
+        } elif (gb_level_complete() == 1) {
+            game_score = game_score + gb_level * 500;
+            gb_init(gb_level + 1);
+        }
+    }
+
+    gb_render(fb);
+    if (play_done == 1) { _result_card(fb, "GAME OVER", 88, COLOR_RED, 90); }
+    return 0;
+}
+
+# Battle Tanks input handling
+fn tk_handle_input() {
+    if (tk_p1_alive) {
+        # The turret direction still updates every frame so aiming stays
+        # responsive, but the cell move is only LATCHED here. Through 0.6.3 the
+        # move happened per frame while the whole simulation — AI movement and
+        # every projectile step — advanced once per tk_tick_rate (4) frames, so
+        # holding a direction moved the tank at the terminal's key-repeat rate
+        # (~25-30 cells/s) against a 15 cells/s world: the player outran the AI
+        # and could literally drive away from an incoming shot. A two-key frame
+        # also produced a diagonal, because each block moved independently.
+        if (input_key(KEY_W) == 1)     { tk_p1_dir = DIR_UP;    tk_p1_pending = DIR_UP; }
+        if (input_key(KEY_S) == 1)     { tk_p1_dir = DIR_DOWN;  tk_p1_pending = DIR_DOWN; }
+        if (input_key(KEY_A) == 1)     { tk_p1_dir = DIR_LEFT;  tk_p1_pending = DIR_LEFT; }
+        if (input_key(KEY_D) == 1)     { tk_p1_dir = DIR_RIGHT; tk_p1_pending = DIR_RIGHT; }
+        if (input_key(KEY_UP) == 1)    { tk_p1_dir = DIR_UP;    tk_p1_pending = DIR_UP; }
+        if (input_key(KEY_DOWN) == 1)  { tk_p1_dir = DIR_DOWN;  tk_p1_pending = DIR_DOWN; }
+        if (input_key(KEY_LEFT) == 1)  { tk_p1_dir = DIR_LEFT;  tk_p1_pending = DIR_LEFT; }
+        if (input_key(KEY_RIGHT) == 1) { tk_p1_dir = DIR_RIGHT; tk_p1_pending = DIR_RIGHT; }
+        if (input_key(KEY_SPACE) == 1) { tk_fire_shot(tk_p1_x, tk_p1_y, tk_p1_dir, 1); }
+    }
+    return 0;
+}
+# Battle Tanks: 1000 for the win.
+fn tk_game_tick(fb) {
+    tk_handle_input();
+
+    if (_play_step(TK_TICK_RATE) == 1) {
+        tk_apply_pending_move();
+        tk_update();
+        if (tk_game_over() == 1) {
+            if (tk_winner() == 1) { game_score = 1000; }
+            _play_finish(GAME_TANKS);
+        }
+    }
+
+    tk_render(fb);
+    if (play_done == 1) { gameover_render(fb, tk_winner()); }
+    return 0;
+}
+
+# MCP Cone input handling
+fn mcp_handle_input() {
+    if (input_key(KEY_LEFT) == 1) { mcp_move_left(); }
+    if (input_key(KEY_RIGHT) == 1) { mcp_move_right(); }
+    if (input_key(KEY_A) == 1) { mcp_move_left(); }
+    if (input_key(KEY_D) == 1) { mcp_move_right(); }
+    if (input_key(KEY_SPACE) == 1) { mcp_fire(); }
+    if (input_key(KEY_UP) == 1) { mcp_fire(); }
+    if (input_key(KEY_W) == 1) { mcp_fire(); }
+    return 0;
+}
+# MCP Cone: 100 points per ring broken, +1000 only for reaching the core. A
+# loss still banks the rings, so the high score varies with how far the run got
+# instead of being a constant 1800.
+fn mcp_game_tick(fb) {
+    mcp_handle_input();
+
+    if (_play_step(MCP_TICK_RATE) == 1) {
+        mcp_update();
+        if (mcp_won == 1) {
+            game_score = mcp_rings_broken() * 100 + 1000;
+            _play_finish(GAME_MCPCONE);
+        } elif (mcp_lost() == 1) {
+            game_score = mcp_rings_broken() * 100;
+            _play_finish(GAME_MCPCONE);
+        }
+    }
+
+    mcp_render(fb);
+    if (play_done == 1) {
+        if (mcp_won == 1) {
+            _result_card(fb, "MCP DEFEATED", 64, COLOR_GREEN, 90);
+        } else {
+            _result_card(fb, "DEREZZED", 96, COLOR_RED, 90);
+        }
+    }
+    return 0;
+}
+
+# Interceptors input handling
+fn int_handle_input() {
+    if (int_player_alive) {
+        if (input_key(KEY_LEFT) == 1) { int_player_x = int_player_x - 4; }
+        if (input_key(KEY_RIGHT) == 1) { int_player_x = int_player_x + 4; }
+        if (input_key(KEY_A) == 1) { int_player_x = int_player_x - 4; }
+        if (input_key(KEY_D) == 1) { int_player_x = int_player_x + 4; }
+        if (int_player_x < 10) { int_player_x = 10; }
+        if (int_player_x > 310) { int_player_x = 310; }
+        if (input_key(KEY_SPACE) == 1) { int_fire(); }
+        if (input_key(KEY_UP) == 1) { int_fire(); }
+        if (input_key(KEY_W) == 1) { int_fire(); }
+    }
+    return 0;
+}
+# Interceptors: the module keeps its own score (100 per kill).
+fn int_game_tick(fb) {
+    int_handle_input();
+
+    if (_play_step(INT_TICK_RATE) == 1) {
+        int_update();
+        if (int_game_over() == 1) {
+            game_score = int_score;
+            _play_finish(GAME_INTERCEPTORS);
+        }
+    }
+
+    int_render(fb);
+    if (play_done == 1) { _result_card(fb, "GAME OVER", 88, COLOR_RED, 90); }
+    return 0;
+}
+
+# Disc Arena input handling
+fn disc_handle_input() {
+    if (input_key(KEY_UP) == 1) { disc_p1_y = disc_p1_y - 3; }
+    if (input_key(KEY_DOWN) == 1) { disc_p1_y = disc_p1_y + 3; }
+    if (input_key(KEY_W) == 1) { disc_p1_y = disc_p1_y - 3; }
+    if (input_key(KEY_S) == 1) { disc_p1_y = disc_p1_y + 3; }
+
+    # Clamp here, not only in disc_update: this handler runs every frame
+    # including after the match ends, but disc_update is gated on
+    # disc_game_done, so through 0.6.3 holding a movement key on the game-over
+    # screen walked the paddle off the arena. Matches how Interceptors bounds
+    # int_player_x in its own input handler.
+    if (disc_p1_y < disc_min_y()) { disc_p1_y = disc_min_y(); }
+    if (disc_p1_y > disc_max_y()) { disc_p1_y = disc_max_y(); }
+    if (input_key(KEY_SPACE) == 1) {
+        # Aim based on player position relative to center
+        var aim = 0;
+        if (disc_p1_y < 110) { aim = 0 - 2; }
+        if (disc_p1_y > 130) { aim = 2; }
+        disc_throw_player(aim);
+    }
+    if (input_key(KEY_D) == 1) {
+        disc_throw_player(0);
+    }
+    return 0;
+}
+# Disc Arena: 200 per hit, banked only on a win.
+fn disc_game_tick(fb) {
+    disc_handle_input();
+
+    if (_play_step(DISC_TICK_RATE) == 1) {
+        disc_update();
+        if (disc_game_over() == 1) {
+            if (disc_winner() == 1) { game_score = disc_p1_score * 200; }
+            _play_finish(GAME_DISCS);
+        }
+    }
+
+    disc_render(fb);
+    if (play_done == 0) {
+        # Running score during play
+        draw_number(fb, disc_p1_score, 130, 2, COLOR_CYAN, 2);
+        draw_text(fb, "-", 152, 2, COLOR_DIM_BLUE, 2);
+        draw_number(fb, disc_ai_score, 168, 2, COLOR_ORANGE, 2);
+    } else {
+        gameover_render(fb, disc_winner());
+    }
+    return 0;
+}
+
+# The title card has run down: start pending_game from a clean slate.
+fn _title_start_game() {
+    current_game = pending_game;
+    game_score = 0;
+    game_new_best = 0;
+    play_ticks = 0;
+    play_done = 0;
+    if (current_game == GAME_LIGHTCYCLES) { lc_init(); }
+    if (current_game == GAME_GRIDBUGS) { gb_init(1); }
+    if (current_game == GAME_TANKS) { tk_init(engine_frame_count()); }
+    if (current_game == GAME_MCPCONE) { mcp_init(); }
+    if (current_game == GAME_INTERCEPTORS) { int_init(); }
+    if (current_game == GAME_DISCS) { disc_init(); }
+    title_active = 0;
+    return 0;
+}
+
+# One frame of whatever is on screen — title card, menu or a game — drawn into
+# fb with the glow applied, ready for engine_present. Input must already have
+# been polled for this frame.
+fn play_frame(fb) {
+    if (title_active == 1) {
+        title_render(fb, pending_game);
+        title_timer = title_timer - 1;
+        if (title_timer <= 0) { _title_start_game(); }
+    } else {
+        if (current_game == GAME_MENU) {
+            menu_update();
+            menu_render(fb);
+        }
+        if (current_game == GAME_LIGHTCYCLES) { lc_game_tick(fb); }
+        if (current_game == GAME_GRIDBUGS) { gb_game_tick(fb); }
+        if (current_game == GAME_TANKS) { tk_game_tick(fb); }
+        if (current_game == GAME_MCPCONE) { mcp_game_tick(fb); }
+        if (current_game == GAME_INTERCEPTORS) { int_game_tick(fb); }
+        if (current_game == GAME_DISCS) { disc_game_tick(fb); }
+
+        # ESC leaves any game for the menu, mid-run or from the result card.
+        # This frame still shows the game; the menu draws from the next one.
+        if (current_game != GAME_MENU) {
+            if (input_key(KEY_ESC) == 1) {
+                current_game = GAME_MENU;
+                play_done = 0;
+                play_ticks = 0;
+            }
+        }
+    }
+
+    glow_apply(fb, SCREEN_W, SCREEN_H);
+    return 0;
+}

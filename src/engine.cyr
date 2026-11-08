@@ -50,7 +50,7 @@ enum FbIoctl {
 # Framebuffer state
 var _fb_ptr = 0;
 var _fb_size = 0;
-var _fb_fd = 0;
+var _fb_fd = 0 - 1;   # -1 = no device; 0 would be stdin, which shutdown would close
 var _fb_ready = 0;
 
 # Real panel geometry (filled by engine_init via ioctl)
@@ -114,8 +114,10 @@ fn engine_init() {
         engine_probe_fb();
     }
 
-    # Allocate PPM buffer for fallback path (avoids per-frame alloc leak)
+    # Allocate PPM buffer for fallback path (avoids per-frame alloc leak).
+    # Without it the fallback and --ppm would convert into address 0.
     _ppm_buf = alloc(SCREEN_W * (SCREEN_H * 3));
+    if (_ppm_buf == 0) { return 0; }
 
     _fb_ready = 1;
     _frame_count = 0;
@@ -169,6 +171,23 @@ fn engine_probe_fb() {
     if (_fb_yres > 16384)   { _fb_fd = 0 - 1; return 0; }
     if (_fb_pitch > 262144) { _fb_fd = 0 - 1; return 0; }
 
+    engine_layout();
+
+    # Full-screen scratch: blit once into RAM, one write() to vram.
+    # Letterbox bars stay black (zeroed here, never overwritten).
+    var blit_sz = _fb_pitch * _fb_yres;
+    _fb_blit = alloc(blit_sz);
+    if (_fb_blit == 0) { _fb_fd = 0 - 1; return 0; }
+    memset(_fb_blit, 0, blit_sz);
+    return 0;
+}
+
+# Placement of the 320x240 surface on the probed panel: the largest integer
+# scale that fits both axes (at least 1), the centring offsets, and how much of
+# the surface fits at all. Reads _fb_xres/_fb_yres, writes _fb_scale,
+# _fb_xoff/_fb_yoff and _fb_src_w/_fb_src_h. Split out of engine_probe_fb in
+# 0.8.3 so tests/engine-blit.tcyr runs the real formula instead of a copy.
+fn engine_layout() {
     # Largest integer scale that fits both axes (>= 1).
     var sx = _fb_xres / SCREEN_W;
     var sy = _fb_yres / SCREEN_H;
@@ -194,13 +213,6 @@ fn engine_probe_fb() {
     }
     if (_fb_src_w < 0) { _fb_src_w = 0; }
     if (_fb_src_h < 0) { _fb_src_h = 0; }
-
-    # Full-screen scratch: blit once into RAM, one write() to vram.
-    # Letterbox bars stay black (zeroed here, never overwritten).
-    var blit_sz = _fb_pitch * _fb_yres;
-    _fb_blit = alloc(blit_sz);
-    if (_fb_blit == 0) { _fb_fd = 0 - 1; return 0; }
-    memset(_fb_blit, 0, blit_sz);
     return 0;
 }
 
@@ -280,13 +292,20 @@ fn engine_blit() {
                     rx = rx + 1;
                 }
             } else {
-                # 32bpp: reuse the source pixel verbatim, force opaque.
+                # 32bpp: reuse the source pixel verbatim, force opaque. Two
+                # copies per 64-bit store, then one 32-bit store when the scale
+                # is odd.
                 var p32 = load32(src_row + so) | 0xFF000000;
+                var p64 = p32 | (p32 << 32);
                 var rx = 0;
-                while (rx < scale) {
+                while (rx + 2 <= scale) {
+                    store64(dx, p64);
+                    dx = dx + 8;
+                    rx = rx + 2;
+                }
+                if (rx < scale) {
                     store32(dx, p32);
                     dx = dx + 4;
-                    rx = rx + 1;
                 }
             }
             sx = sx + 1;
@@ -300,16 +319,26 @@ fn engine_blit() {
         # display path could not hold 60fps on an ordinary monitor.
         #
         # The regions never overlap (dst sits ry >= 1 whole pitches below src),
-        # so a forward copy is correct. row_bytes is a multiple of 8 in the
-        # common full-width case (320 = 40*8), but NOT once the clamp above
-        # trims src_w to an odd panel width — so copy whole words while a full
-        # word remains, then finish the tail a byte at a time.
+        # so a forward copy is correct. Four words per pass while 32 bytes
+        # remain (every full-width row at scale >= 2: 1280 * scale bytes at
+        # 32bpp, 640 * scale at 16bpp), then whole words, then single bytes:
+        # row_bytes is NOT a multiple of 8 once the clamp above trims src_w to
+        # an odd panel width.
         var ry = 1;
         while (ry < scale) {
             var d = blit + (dy0 + ry) * pitch + xoff * bpp_bytes;
             var sp = first;
+            var e32 = first + (row_bytes / 32) * 32;
             var e8 = first + (row_bytes / 8) * 8;
             var e  = first + row_bytes;
+            while (sp < e32) {
+                store64(d, load64(sp));
+                store64(d + 8, load64(sp + 8));
+                store64(d + 16, load64(sp + 16));
+                store64(d + 24, load64(sp + 24));
+                d = d + 32;
+                sp = sp + 32;
+            }
             while (sp < e8) {
                 store64(d, load64(sp));
                 d = d + 8;

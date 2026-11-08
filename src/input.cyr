@@ -4,7 +4,7 @@
 #
 # Player 1: WASD
 # Player 2: Arrow keys
-# Shared: Space (action), Q (quit), Enter (select), Escape (back/pause)
+# Shared: Space (action), Q (quit), Enter (select), Escape (back to menu)
 
 # termios ioctl constants: TCGETS=0x5401, TCSETS=0x5402
 enum TermConst {
@@ -35,11 +35,12 @@ enum Key {
     KEY_4 = 15;
     KEY_5 = 16;
     KEY_6 = 17;
-    KEY_COUNT = 18;
+    KEY_ANY = 18;    # any complete key press, mapped or not ("PRESS ANY KEY")
+    KEY_COUNT = 19;
 }
 
-# Key state (1 = pressed this frame, 0 = not). 18 i64 slots.
-var _key_state[18];
+# Key state (1 = pressed this frame, 0 = not). One i64 slot per key.
+var _key_state[19];
 
 # Original termios for restore
 var _termios_orig[8];
@@ -55,9 +56,219 @@ fn _key_get(k) {
     return load64(&_key_state + k * 8);
 }
 
+fn _keys_clear() {
+    var k = 0;
+    while (k < KEY_COUNT) {
+        store64(&_key_state + k * 8, 0);
+        k = k + 1;
+    }
+    return 0;
+}
+
+# ---------------------------------------------------------------------------
+# Escape-sequence parser
+#
+# Bytes are fed one at a time through input_feed, which keeps its state across
+# calls and across frames. Through 0.8.2 input_poll read ESC, then exactly two
+# more bytes, and mapped only ESC [ A..D: every other sequence spilled its
+# remaining bytes into the ordinary key map. F5 (ESC [ 1 5 ~) became a '5' and
+# launched Interceptors from the menu, F10 (ESC [ 2 1 ~) launched Light Cycles,
+# Shift+Down (ESC [ 1 ; 2 B) launched Grid Bugs, and the trailing 'A' or 'D' of
+# any modified arrow read as a WASD key. Now a CSI sequence (ESC [, parameter
+# and intermediate bytes, one final byte) and an SS3 sequence (ESC O, one
+# final byte, sent by terminals in application-cursor mode) are consumed whole:
+# a final A/B/C/D is an arrow whatever its modifiers, anything else is
+# ignored. The Linux console's F1-F5 (ESC [ [ A..E) are consumed too.
+enum InState {
+    IN_GROUND = 0;    # ordinary bytes
+    IN_ESC    = 1;    # saw ESC; a sequence may follow
+    IN_CSI    = 2;    # inside ESC [ ... until the final byte
+    IN_SS3    = 3;    # saw ESC O; one final byte follows
+    IN_LINUX  = 4;    # saw ESC [ [; one more byte (Linux console F1-F5)
+}
+
+enum InLimit {
+    IN_POLL_MAX  = 64;   # bytes consumed per frame, at most (one read)
+    IN_SEQ_WAIT  = 2;    # frame ends an unfinished sequence may span
+}
+
+var _in_state = 0;
+var _in_csi_len = 0;     # bytes seen since ESC [
+var _in_esc_polls = 0;   # frame ends since the sequence's ESC
+
+# One read's worth of input. File-scope: a function-local array reserves one
+# 8-byte slot on this toolchain, and this holds IN_POLL_MAX bytes.
+var _in_buf[8];
+
+# A sequence's final byte: A/B/C/D are the arrows, whatever modifiers the
+# parameters carried. Any other final byte (F-keys, Home, Insert, ...) is a key
+# press the games do not use.
+fn _input_final(ch) {
+    if (ch == 65) { _key_set(KEY_UP, 1); }
+    if (ch == 66) { _key_set(KEY_DOWN, 1); }
+    if (ch == 67) { _key_set(KEY_RIGHT, 1); }
+    if (ch == 68) { _key_set(KEY_LEFT, 1); }
+    _key_set(KEY_ANY, 1);
+    return 0;
+}
+
+# An ordinary byte, outside any escape sequence.
+fn _input_byte(ch) {
+    if (ch == 27) {
+        _in_state = IN_ESC;
+        _in_esc_polls = 0;
+        return 0;
+    }
+
+    _key_set(KEY_ANY, 1);
+
+    # WASD (lowercase + uppercase)
+    if (ch == 119) { _key_set(KEY_W, 1); }
+    if (ch == 87)  { _key_set(KEY_W, 1); }
+    if (ch == 97)  { _key_set(KEY_A, 1); }
+    if (ch == 65)  { _key_set(KEY_A, 1); }
+    if (ch == 115) { _key_set(KEY_S, 1); }
+    if (ch == 83)  { _key_set(KEY_S, 1); }
+    if (ch == 100) { _key_set(KEY_D, 1); }
+    if (ch == 68)  { _key_set(KEY_D, 1); }
+
+    # Ctrl+C (ETX, byte 3) — treat as quit for safe terminal restore
+    if (ch == 3) { _key_set(KEY_Q, 1); }
+
+    # Action keys. Enter arrives as CR (13) because raw mode clears ICRNL, so
+    # the tty no longer turns it into LF (10). Through 0.8.2 only 10 was
+    # mapped, so "ENTER TO SELECT" did nothing on a real terminal; LF is still
+    # accepted for terminals that send it.
+    if (ch == 32)  { _key_set(KEY_SPACE, 1); }
+    if (ch == 13)  { _key_set(KEY_ENTER, 1); }
+    if (ch == 10)  { _key_set(KEY_ENTER, 1); }
+    if (ch == 113) { _key_set(KEY_Q, 1); }
+    if (ch == 81)  { _key_set(KEY_Q, 1); }
+
+    # Number keys for game select
+    if (ch == 49) { _key_set(KEY_1, 1); }
+    if (ch == 50) { _key_set(KEY_2, 1); }
+    if (ch == 51) { _key_set(KEY_3, 1); }
+    if (ch == 52) { _key_set(KEY_4, 1); }
+    if (ch == 53) { _key_set(KEY_5, 1); }
+    if (ch == 54) { _key_set(KEY_6, 1); }
+    return 0;
+}
+
+# Feed one input byte through the parser.
+fn input_feed(ch) {
+    if (_in_state == IN_ESC) {
+        if (ch == 91) { _in_state = IN_CSI; _in_csi_len = 0; return 0; }   # [
+        if (ch == 79) { _in_state = IN_SS3; return 0; }                     # O
+        # ESC then an ordinary byte: Escape pressed, then another key, inside
+        # one frame (or Alt+key). Report the Escape, then handle the byte.
+        _in_state = IN_GROUND;
+        _key_set(KEY_ESC, 1);
+        _key_set(KEY_ANY, 1);
+        return _input_byte(ch);
+    }
+    if (_in_state == IN_CSI) {
+        if (_in_csi_len == 0) {
+            if (ch == 91) { _in_state = IN_LINUX; return 0; }
+        }
+        # Parameter (0x30-0x3F) and intermediate (0x20-0x2F) bytes.
+        if (ch >= 32) {
+            if (ch <= 63) {
+                _in_csi_len = _in_csi_len + 1;
+                return 0;
+            }
+        }
+        _in_state = IN_GROUND;
+        if (ch >= 64) {
+            if (ch <= 126) { return _input_final(ch); }
+        }
+        # Not valid inside a sequence: abandon it and take the byte as itself.
+        return _input_byte(ch);
+    }
+    if (_in_state == IN_SS3) {
+        _in_state = IN_GROUND;
+        if (ch >= 64) {
+            if (ch <= 126) { return _input_final(ch); }
+        }
+        return _input_byte(ch);
+    }
+    if (_in_state == IN_LINUX) {
+        _in_state = IN_GROUND;
+        _key_set(KEY_ANY, 1);
+        return 0;
+    }
+    return _input_byte(ch);
+}
+
+# End of one frame's input. A bare ESC with nothing after it is the Escape key,
+# but the rest of an escape sequence can arrive a little later (over ssh, or on
+# a slow serial console), so the parser waits IN_SEQ_WAIT frame ends from the
+# ESC before deciding. Then a lone ESC counts as the Escape key, and a sequence
+# still unfinished is dropped, so a stray ESC [ cannot swallow keys typed later.
+fn input_end_frame() {
+    if (_in_state == IN_GROUND) { return 0; }
+    _in_esc_polls = _in_esc_polls + 1;
+    if (_in_esc_polls < IN_SEQ_WAIT) { return 0; }
+    if (_in_state == IN_ESC) {
+        _key_set(KEY_ESC, 1);
+        _key_set(KEY_ANY, 1);
+    }
+    _in_state = IN_GROUND;
+    return 0;
+}
+
+# ---------------------------------------------------------------------------
+# Terminal restore on fatal signals
+#
+# Raw mode clears ISIG, so Ctrl+C reaches the game as byte 3 and quits through
+# the normal path. But a signal from outside (kill, a closed terminal, a crash)
+# used to end the process with the terminal still raw: no echo, no line
+# editing, until the user typed `reset` blind. These handlers put the original
+# termios back first. SA_RESETHAND restores the default action on entry and
+# SA_NODEFER leaves the signal unblocked, so re-raising it then ends the
+# process the way the signal would have, exit status and core dump included.
+#ifdef CYRIUS_ARCH_AARCH64
+enum InSigSys { IN_SYS_RT_SIGACTION = 134; }
+#endif
+#ifdef CYRIUS_ARCH_X86
+enum InSigSys { IN_SYS_RT_SIGACTION = 13; }
+#endif
+
+enum InSig {
+    IN_SA_RESTORER = 0x04000000;
+    IN_SA_NODEFER  = 0x40000000;
+    IN_SA_RESETHAND = 0x80000000;
+}
+
+# struct kernel_sigaction: handler, flags, restorer, mask (8 bytes each).
+var _in_sigact[4];
+
+fn _input_on_signal(sig) {
+    input_shutdown();
+    syscall(SYS_KILL, syscall(SYS_GETPID), sig);
+    syscall(SYS_EXIT, 128 + sig);   # not reached: the re-raised signal ends us
+    return 0;
+}
+
+fn _input_catch(sig) {
+    store64(&_in_sigact, &_input_on_signal);
+    store64(&_in_sigact + 8, IN_SA_RESTORER | IN_SA_NODEFER | IN_SA_RESETHAND);
+    # x86_64 refuses delivery without SA_RESTORER. The handler never returns,
+    # so the restorer is never used; it only has to be a valid address.
+    store64(&_in_sigact + 16, &_input_on_signal);
+    store64(&_in_sigact + 24, 0);
+    syscall(IN_SYS_RT_SIGACTION, sig, &_in_sigact, 0, 8);
+    return 0;
+}
+
+# ---------------------------------------------------------------------------
+
+# Put the terminal in raw, non-blocking mode. Returns 1, or 0 when stdin is not
+# a terminal: then there is no way to read keys without blocking a frame (a
+# pipe or file ignores VMIN/VTIME), so the caller should not start the game.
 fn input_init() {
     # Save original terminal settings
-    syscall(SYS_IOCTL, 0, TCGETS, &_termios_orig);
+    if (syscall(SYS_IOCTL, 0, TCGETS, &_termios_orig) < 0) { return 0; }
 
     # Copy to raw mode buffer (64 bytes)
     memcpy(&_termios_raw, &_termios_orig, 64);
@@ -77,79 +288,41 @@ fn input_init() {
     store8(&_termios_raw + 22, 0);
 
     # Apply raw mode
-    syscall(SYS_IOCTL, 0, TCSETS, &_termios_raw);
-
-    # Clear key state
-    memset(&_key_state, 0, KEY_COUNT * 8);
-
+    if (syscall(SYS_IOCTL, 0, TCSETS, &_termios_raw) < 0) { return 0; }
     _input_ready = 1;
-    return 0;
+
+    # From here on every way out must restore the terminal.
+    _input_catch(SIGHUP);
+    _input_catch(SIGINT);
+    _input_catch(SIGQUIT);
+    _input_catch(SIGTERM);
+    _input_catch(4);    # SIGILL
+    _input_catch(6);    # SIGABRT
+    _input_catch(7);    # SIGBUS
+    _input_catch(8);    # SIGFPE
+    _input_catch(11);   # SIGSEGV
+
+    _keys_clear();
+    _in_state = IN_GROUND;
+    return 1;
 }
 
 fn input_poll() {
     # Reset all keys to 0 each frame
-    memset(&_key_state, 0, KEY_COUNT * 8);
+    _keys_clear();
+    if (_input_ready == 0) { return 0; }
 
-    # Read all available bytes from stdin (non-blocking)
-    # Safe as a local despite the one-slot reservation for function-local
-    # arrays: every read is 1 byte and every load is load8(&buf) at offset 0,
-    # so nothing is ever touched past the reserved slot.
-    var buf[4];
-    var n = syscall(SYS_READ, 0, &buf, 1);
-
-    while (n > 0) {
-        var ch = load8(&buf);
-
-        # Escape sequence: ESC [ A/B/C/D for arrow keys
-        if (ch == 27) {
-            var n2 = syscall(SYS_READ, 0, &buf, 1);
-            if (n2 > 0) {
-                var ch2 = load8(&buf);
-                if (ch2 == 91) {
-                    var n3 = syscall(SYS_READ, 0, &buf, 1);
-                    if (n3 > 0) {
-                        var ch3 = load8(&buf);
-                        if (ch3 == 65) { _key_set(KEY_UP, 1); }
-                        if (ch3 == 66) { _key_set(KEY_DOWN, 1); }
-                        if (ch3 == 67) { _key_set(KEY_RIGHT, 1); }
-                        if (ch3 == 68) { _key_set(KEY_LEFT, 1); }
-                    }
-                }
-            } else {
-                _key_set(KEY_ESC, 1);
-            }
-        }
-
-        # WASD (lowercase + uppercase)
-        if (ch == 119) { _key_set(KEY_W, 1); }
-        if (ch == 87)  { _key_set(KEY_W, 1); }
-        if (ch == 97)  { _key_set(KEY_A, 1); }
-        if (ch == 65)  { _key_set(KEY_A, 1); }
-        if (ch == 115) { _key_set(KEY_S, 1); }
-        if (ch == 83)  { _key_set(KEY_S, 1); }
-        if (ch == 100) { _key_set(KEY_D, 1); }
-        if (ch == 68)  { _key_set(KEY_D, 1); }
-
-        # Ctrl+C (ETX, byte 3) — treat as quit for safe terminal restore
-        if (ch == 3) { _key_set(KEY_Q, 1); }
-
-        # Action keys
-        if (ch == 32)  { _key_set(KEY_SPACE, 1); }
-        if (ch == 10)  { _key_set(KEY_ENTER, 1); }
-        if (ch == 113) { _key_set(KEY_Q, 1); }
-        if (ch == 81)  { _key_set(KEY_Q, 1); }
-
-        # Number keys for game select
-        if (ch == 49) { _key_set(KEY_1, 1); }
-        if (ch == 50) { _key_set(KEY_2, 1); }
-        if (ch == 51) { _key_set(KEY_3, 1); }
-        if (ch == 52) { _key_set(KEY_4, 1); }
-        if (ch == 53) { _key_set(KEY_5, 1); }
-        if (ch == 54) { _key_set(KEY_6, 1); }
-
-        n = syscall(SYS_READ, 0, &buf, 1);
+    # One read per frame, at most IN_POLL_MAX bytes. Through 0.8.2 this read a
+    # byte at a time until the tty ran dry, so input arriving faster than it
+    # was consumed (a paste, a held-down key over a slow link) kept the frame
+    # from ever finishing. Anything beyond the limit waits for the next frame.
+    var n = syscall(SYS_READ, 0, &_in_buf, IN_POLL_MAX);
+    var i = 0;
+    while (i < n) {
+        input_feed(load8(&_in_buf + i));
+        i = i + 1;
     }
-
+    input_end_frame();
     return 0;
 }
 
@@ -161,6 +334,10 @@ fn input_key(key) {
 
 fn input_quit() {
     return _key_get(KEY_Q);
+}
+
+fn input_any() {
+    return _key_get(KEY_ANY);
 }
 
 fn input_shutdown() {

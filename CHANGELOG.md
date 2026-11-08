@@ -6,6 +6,91 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.8.3] — 2026-11-07
+
+The P(-1) sweep: a full pass over `src/` for correctness, memory safety, input hardening, dead code, performance, robustness and regression cover. Every fix below was reproduced first: as a failing test, or end to end against the 0.8.2 binary on a pseudo-terminal. Every refactor was shown to change nothing. Most of the defects were in keyboard input, and none could be seen in the headless `--ppm` frames.
+
+### Fixed
+- **Enter did nothing on a real terminal.** Raw mode clears `ICRNL`, so the Enter key arrives as CR (13), but only LF (10) was mapped, and the menu's "ENTER TO SELECT" never worked. Games could only be started with the number keys. CR is now Enter, and LF still is.
+- **Function keys and modified arrows leaked game commands.** The parser read ESC plus exactly two more bytes and mapped only `ESC [ A..D`, so every other sequence spilled its remaining bytes into the key map:
+  - From the menu, F5 launched Interceptors (it sent '5'), and F10, F11 and F12 launched games 1, 3 and 4.
+  - Shift+Down launched Grid Bugs (it sent '2').
+  - The trailing letter of any modified arrow read as a WASD key.
+
+  `input.cyr` now has a proper byte-at-a-time parser. It consumes CSI sequences whole, SS3 sequences (application-cursor mode) and the Linux console's F1–F5. A final A/B/C/D is an arrow whatever its modifiers; anything else is ignored. A lone ESC is held one frame in case the rest of a sequence is still in transit, and an unfinished sequence is dropped after that, so a stray `ESC [` cannot swallow later keys.
+- **Light Cycles: the arrow keys steered the AI's cycle.** Player 2 is always the AI, but the arrows set its direction one line before the AI chose. `ai_lightcycles` keeps its current direction when that leaves at least half of its best open run, so one player could steer both cycles and drive the opponent into walls. The arrows now steer player 1, as they do in every other game.
+- **The terminal was left raw after a kill, a closed terminal or a crash.** Raw mode clears `ISIG`, so only the in-game Q/Ctrl+C path restored the terminal. After SIGTERM, SIGHUP or a SIGSEGV you had no echo and no line editing until you typed `reset` blind. Handlers for HUP, INT, QUIT, TERM, ILL, ABRT, BUS, FPE and SEGV now restore the original termios. Then they re-raise the signal, so the exit status and any core dump are unchanged. SIGKILL still cannot be caught.
+- **Stdin that is not a terminal hung the game.** With stdin an open pipe, the first `read` blocked forever: VMIN/VTIME only apply to ttys, so not one frame was drawn. With a file or `/dev/null` the game ran, but nothing could control it. It now refuses to start, says why, and exits 1. `--ppm` needs no terminal.
+- **Input could hold a frame open indefinitely.** `input_poll` read one byte per syscall until the tty ran dry, so input arriving faster than it was consumed kept the frame from finishing. Now there is one read per frame of at most 64 bytes, and the rest waits for the next frame.
+- **"PRESS ANY KEY" accepted only Enter, Space, Esc and 1–4.** Any key now skips the splash.
+- **The font had no J, Q, V or Z, and a missing glyph draws nothing.** The menu footer read "TO UIT", every "GAME OVER" card read "GAME O ER", and MCP Cone's loss card read "DERE  ED". All four glyphs were added. `screenshots/menu.png` is the only reference frame that changed.
+- **`--ppm` matched anywhere in `/proc/self/cmdline`, argv[0] included.** So `--ppmx`, or a binary run from a path containing `--ppm`, took screenshot mode. It must now be a whole argument.
+- **`engine_init` failure paths:**
+  - When the framebuffer allocation failed, `main` drew through a null pointer. It now exits 1 with a message.
+  - The PPM buffer's allocation was never checked.
+  - `_fb_fd` started at 0, which is stdin, so a shutdown before init would have closed it.
+
+### Changed
+- **`main.cyr` split, 1,141 → 220 lines.** The new modules:
+  - `text.cyr`: the bitmap font.
+  - `scores.cyr`: the high-score file.
+  - `screens.cyr`: splash, menu, title and result cards.
+  - `play.cyr`: per-game input and ticks, and `play_frame`.
+
+  Only one game runs at a time, so one `play_ticks`/`play_done` pair replaces 18 per-game tick globals. `play_frame` owns ESC-to-menu, which had been written out twice in each of the six game ticks. One `_result_card` draws all six result screens, and one `_menu_row` draws the six menu rows.
+- **Battle Tanks: one shot updater.** The player's and the AI's updaters were the same 50 lines twice. The latched-move code moved from `main.cyr` into `tanks.cyr`.
+- **Light Cycles: the step no longer round-trips through `x * 1000 + y`.** A step off the left or top edge decoded to garbage coordinates that only happened to read as a wall.
+- **`ai.cyr` lost its dead code:** the open-grid A* (`ai_find_direction`) and `ai_chase_direction` had no callers, 145 lines in all. Grid Bugs keeps its greedy chase, which is already a shortest path on its fully open grid. The A* working arrays were sized for the 4,800-cell Light Cycles grid they never ran on; they now hold the 192-cell tank maze. That is 184,320 bytes less static data, and the binary went from 402,632 to 214,616 bytes (−47%; aarch64 451,640 → 267,704).
+- **`src/test.cyr` and the `[build].test` entry were removed.** The file held no assertions and made bare `cyrius test` report 5 suites against 4.
+- **`engine_layout()` was split out of `engine_probe_fb`.** The blit test now runs the real geometry formula instead of a hand copy.
+
+### Performance
+- **Every draw primitive writes a pixel as one 32-bit store** instead of four byte stores. These are the same four bytes, so the output is byte-identical.
+- **The glow pass walks a pointer along each row** instead of recomputing the offset per pixel, and updates each neighbour with one 32-bit load and store instead of three byte loads and three byte stores.
+- **`engine_blit`** writes two 32bpp pixels per 64-bit store and copies replicated rows 32 bytes per pass.
+- **A\*** clears two arrays with word stores, instead of five with the byte-loop stdlib `memset`.
+- Frame times, from `cyrius bench benches/frame.bcyr`. Each figure is the median of three interleaved runs per tree on the test machine; absolute numbers move about ±10% from run to run. A "frame" is that game's render plus glow over a busy mid-run state.
+
+  | Benchmark | 0.8.2 | 0.8.3 | Change |
+  |---|---:|---:|---:|
+  | Light Cycles frame | 989 µs | 750 µs | −24% |
+  | Grid Bugs frame | 623 µs | 467 µs | −25% |
+  | Battle Tanks frame | 426 µs | 307 µs | −28% |
+  | MCP Cone frame | 429 µs | 310 µs | −28% |
+  | Interceptors frame | 261 µs | 171 µs | −35% |
+  | Disc Arena frame | 294 µs | 203 µs | −31% |
+  | Glow on a black frame (fixed cost) | 217 µs | 142 µs | −34% |
+  | Tanks A* search, corner to corner | 86 µs | 75 µs | −13% |
+  | Light Cycles lookahead | 0.9 µs | 0.9 µs | — |
+  | `engine_blit`, 2560×1440 panel | 3.45 ms | 2.48 ms | −28% |
+
+  Every game's own work fits well inside the 4 ms target. The `/dev/fb0` present path is now the largest per-frame cost on a 1440p panel. Two further gains were measured and not taken: inlining the glow neighbour update would save another ~11%, but readability won; and the open-set scan dominates A*, which runs only once per tank tick.
+
+### Added
+- **`benches/frame.bcyr`**, the project's first benchmarks: per-game frames, glow, both AI hot paths and the 1440p present path. It includes only game modules, so it also builds against older trees for before/after comparisons. CI runs it as an informational step.
+- **`tests/frames.sh` and `tests/frames.sha256`.** The script renders all 14 `--ppm` frames twice, once with no `scores.dat` and once with a fixture `scores.dat`. The fixture makes `draw_number` draw every digit and exercises both load clamps. All 28 frames are checked against the manifest. It replaces CI's smoke test, which only checked the splash file's size. Run `sh tests/frames.sh build/encom-hits --update` after an intended render change.
+- **Four new suites:**
+  - `input-parser`: 40 assertions.
+  - `play`: 23.
+  - `tanks-shots`: 25, covering the merged updater, the bounce limit and A*.
+  - `font`: 12.
+
+  `engine-blit` grew from 4 to 13 assertions: it covers scales 1, 2, 3, 4 and 6 at 16 and 32bpp with padded pitches, checking every panel pixel. Until now it only covered scale 1, where the row copy never runs. The total is 8 suites and 160 assertions (was 4 and 52), and every new suite was mutation-checked.
+- **The CI fmt gate covers `benches/`.** `.gitignore` lists `/scores.dat`.
+
+### Notes
+- **Refactors were shown to change nothing.** A scratch harness, not committed, drove all six games through their public APIs, and the full play layer one frame at a time, with seeded scripted input. It hashed every rendered frame and the game state. The game-layer trace is identical to 0.8.2, and so is the play-layer trace once the two intended changes (the Light Cycles arrows and the four glyphs) are reverted. The harness was itself mutation-checked.
+- **End to end:** the real binary ran on a pseudo-terminal inside a user namespace, with `/dev/fb0` bind-mounted to `/dev/null`, so nothing reached the screen. Against 17 checks, 0.8.2 fails 9 and 0.8.3 passes all 17, on x86_64 and on aarch64 under qemu.
+- **Found, and left for the 0.8.4 play-test (game-design calls):**
+  - Battle Tanks and Disc Arena can only ever score 0 or 1000.
+  - MCP Cone's shot follows the player's angle mid-flight.
+  - In Interceptors, enemies pass through the ship, leaving the screen costs nothing, and difficulty stops rising at wave 5.
+  - Grid Bugs' identical greedy pursuit merges every bug into one.
+  - The font draws M and N alike, so the title reads as "EMCOM".
+- **The aarch64 gate catches less than 0.8.2 said.** `syscall(20, …)` (x86_64 `writev`) built for aarch64 with no warning and ran as `epoll_create1`. A new raw syscall number still needs a `qemu-aarch64 -strace` check by hand; the CI comment now says so.
+- **Checked and not a bug:** the maze RNG's `0 - x` cannot reach `INT64_MIN`, which would make a negative pick index. The only state that steps to it is negative, and stored states never are.
+- **`scores.dat` is tracked in git.** It has been since a 0.6.x commit, and holds play-test scores. It is now in `.gitignore`, but stays tracked until it is removed from the index (`git rm --cached scores.dat`). Nothing in CI reads it any more.
+
 ## [0.8.2] — 2026-11-07
 
 Quick-wins release. Clears the open roadmap items that needed neither a design decision nor a play-test, and reorganises what is left into 0.8.3 → 1.0.0. The cross-target check turned up two real aarch64 defects. No game-logic or render changes.

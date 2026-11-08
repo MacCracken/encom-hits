@@ -6,7 +6,7 @@
 
 - **Type**: Standalone game binary (Cyrius-native)
 - **License**: GPL-3.0-only
-- **Version**: SemVer, currently 0.8.2 (pre-1.0; 0.6.x→0.9.x for hardening before 1.0.0 release)
+- **Version**: SemVer, currently 0.8.3 (pre-1.0; 0.6.x→0.9.x for hardening before 1.0.0 release)
 - **Version file**: `VERSION` at repo root
 - **Genesis repo**: [agnosticos](https://github.com/MacCracken/agnosticos)
 - **Sister projects**: [cyrius-doom](https://github.com/MacCracken/cyrius-doom) (3D BSP), [cyrius-nba-jam](https://github.com/MacCracken/cyrius-nba-jam) (2D sprites)
@@ -37,18 +37,22 @@ A collection of six arcade games inspired by the 1982 TRON cabinet and Discs of 
 
 3. **The t-ron connection.** The AGNOS security monitor is named t-ron — the security program from TRON that fights the MCP. ENCOM is the fictional company from the same universe. This collection ships games from the company whose security program already runs in the OS.
 
-4. **Small scope, high polish.** Each game is 226-315 lines. The whole collection is ~4.4K lines. Small enough to finish, polished enough to showcase.
+4. **Small scope, high polish.** Each game is 231-315 lines. The whole collection is ~4.3K lines. Small enough to finish, polished enough to showcase.
 
 ## Architecture
 
 ```
 src/
-  main.cyr          — Entry, menu, bitmap text, splash, scoring, --ppm mode
+  main.cyr          — Entry, --ppm screenshot mode, main loop
   engine.cyr        — Framebuffer, /dev/fb0 + PPM output, frame timing
   draw.cyr          — Bresenham line, hline/vline, rect, filled rect, pixel
-  input.cyr         — Terminal raw mode, keyboard state, escape sequences
+  input.cyr         — Terminal raw mode, escape-sequence parser, signal restore
   glow.cyr          — Additive neon bloom effect
-  ai.cyr            — A* (open grid + maze-aware), chase, LC lookahead
+  text.cyr          — 3x5 bitmap font (draw_char/text/number)
+  scores.cyr        — scores.dat load/save/clamp
+  screens.cyr       — Splash, menu, title cards, result cards
+  play.cyr          — Per-game input + ticks, play_frame (one frame of play)
+  ai.cyr            — Maze-aware A*, Light Cycles lookahead
   grid.cyr          — Maze generation (iterative backtracker), wall query
   types.cyr         — Colors, constants, game IDs, per-game grid dimensions
   lightcycles.cyr   — Light Cycles game
@@ -84,10 +88,11 @@ The core rendering primitive is `draw_line(x0, y0, x1, y1, color)` — Bresenham
 
 ### Shared AI
 
-`ai.cyr` provides pathfinding (A* on a grid) used by:
-- Battle Tanks: AI tank navigates maze to find player, predicts shot angles
-- Grid Bugs: bugs chase player via shortest path on grid
-- Light Cycles (AI opponent): avoid walls, maximize opponent's constraint
+`ai.cyr` provides:
+- Battle Tanks: maze-aware A* (`ai_find_direction_maze`). The AI tank paths to the player, stops one cell short, and fires the way it faces every 8 ticks
+- Light Cycles (AI opponent): `ai_lightcycles`, which avoids walls by taking the direction with the longest open run, keeping its heading while that run is at least half the best
+
+Grid Bugs does not use `ai.cyr`: its grid is fully open, so the greedy one-axis step in `gridbugs.cyr` is already a shortest path.
 
 ## Development Process
 
@@ -95,10 +100,11 @@ The core rendering primitive is `draw_line(x0, y0, x1, y1, color)` — Bresenham
 
 1. Work phase — implement game, add to menu
 2. Build: `cyrius build src/main.cyr build/encom-hits`
-3. Play test — feel, timing, difficulty curve
-4. Benchmark: frame time (target: <4ms for 240fps — these are simple games)
-5. Documentation — CHANGELOG
-6. Return to step 1
+3. Verify: `cyrius test tests` and `sh tests/frames.sh build/encom-hits` (all 28 reference frames; `--update` after an intended render change)
+4. Play test — feel, timing, difficulty curve
+5. Benchmark: `cyrius bench benches/frame.bcyr` (target: <4ms per frame — these are simple games)
+6. Documentation — CHANGELOG
+7. Return to step 1
 
 ### Build Order (completed)
 

@@ -9,7 +9,6 @@ cyrius = "6.7.18"
 
 [build]
 entry = "src/main.cyr"
-test = "src/test.cyr"
 output = "build/encom-hits"
 
 # Zero-asset, self-rolled on bare Cyrius stdlib — every visual is a computed

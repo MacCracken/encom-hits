@@ -1,0 +1,172 @@
+# input-parser -- regression cover for the keyboard escape-sequence parser.
+#
+# Through 0.8.2 input_poll handled ESC by reading exactly two more bytes and
+# mapping only ESC [ A..D. Every other sequence spilled its remaining bytes
+# into the ordinary key map: F5 (ESC [ 1 5 ~) read as '5' and launched
+# Interceptors from the menu, Shift+Down (ESC [ 1 ; 2 B) as '2', and the
+# trailing letter of a modified arrow as a WASD key. Enter was mapped only as
+# LF (10), but raw mode clears ICRNL, so a real terminal sends CR (13) and
+# "ENTER TO SELECT" did nothing. Each case below feeds raw bytes through
+# input_feed and checks exactly which keys fired.
+#
+# In the strings below '^' stands for ESC (27); it never appears inside a
+# sequence, so it is safe to use as the marker.
+
+include "src/types.cyr"
+include "src/input.cyr"
+
+fn feed(s) {
+    var i = 0;
+    var ch = load8(s);
+    while (ch != 0) {
+        if (ch == 94) { input_feed(27); }
+        else { input_feed(ch); }
+        i = i + 1;
+        ch = load8(s + i);
+    }
+    return 0;
+}
+
+# A fresh frame: no keys, parser in its ground state.
+fn fresh() {
+    _keys_clear();
+    _in_state = IN_GROUND;
+    _in_esc_polls = 0;
+    return 0;
+}
+
+# Number of keys set, not counting KEY_ANY.
+fn keys_down() {
+    var n = 0;
+    var k = 0;
+    while (k < KEY_ANY) {
+        if (input_key(k) == 1) { n = n + 1; }
+        k = k + 1;
+    }
+    return n;
+}
+
+fn test_enter(): i64 {
+    fresh(); feed("\r");
+    assert_eq(input_key(KEY_ENTER), 1, "CR (what a raw terminal sends) is Enter");
+    fresh(); feed("\n");
+    assert_eq(input_key(KEY_ENTER), 1, "LF is still Enter");
+    return 0;
+}
+
+fn test_plain_arrows(): i64 {
+    fresh(); feed("^[A");
+    assert_eq(input_key(KEY_UP), 1, "ESC [ A is Up");
+    assert_eq(keys_down(), 1, "and nothing else (no stray KEY_A)");
+    fresh(); feed("^[D");
+    assert_eq(input_key(KEY_LEFT), 1, "ESC [ D is Left");
+    assert_eq(input_key(KEY_D), 0, "not the D key");
+    fresh(); feed("^OB");
+    assert_eq(input_key(KEY_DOWN), 1, "SS3 ESC O B (application cursor mode) is Down");
+    assert_eq(keys_down(), 1, "and nothing else");
+    return 0;
+}
+
+fn test_function_keys_do_not_leak(): i64 {
+    fresh(); feed("^[15~");
+    assert_eq(keys_down(), 0, "F5 sets no game key (was KEY_5: launched Interceptors)");
+    assert_eq(input_any(), 1, "but still counts as a key press");
+    fresh(); feed("^[21~");
+    assert_eq(keys_down(), 0, "F10 sets no game key (was KEY_1)");
+    fresh(); feed("^[24~");
+    assert_eq(keys_down(), 0, "F12 sets no game key (was KEY_4)");
+    fresh(); feed("^OP");
+    assert_eq(keys_down(), 0, "xterm F1 (ESC O P) sets no game key");
+    fresh(); feed("^[[A");
+    assert_eq(keys_down(), 0, "Linux console F1 (ESC [ [ A) sets no game key (was KEY_A)");
+    fresh(); feed("^[3~");
+    assert_eq(keys_down(), 0, "Delete sets no game key");
+    return 0;
+}
+
+fn test_modified_arrows(): i64 {
+    fresh(); feed("^[1;2B");
+    assert_eq(input_key(KEY_DOWN), 1, "Shift+Down is Down");
+    assert_eq(keys_down(), 1, "and nothing else (was KEY_2: launched Grid Bugs)");
+    fresh(); feed("^[1;5D");
+    assert_eq(input_key(KEY_LEFT), 1, "Ctrl+Left is Left");
+    assert_eq(keys_down(), 1, "and nothing else (was KEY_5 + KEY_D)");
+    return 0;
+}
+
+fn test_back_to_back(): i64 {
+    fresh(); feed("^[A^[B^[C");
+    assert_eq(input_key(KEY_UP), 1, "first of three sequences");
+    assert_eq(input_key(KEY_DOWN), 1, "second of three sequences");
+    assert_eq(input_key(KEY_RIGHT), 1, "third of three sequences");
+    assert_eq(keys_down(), 3, "exactly those three");
+    fresh(); feed("w^[Cq");
+    assert_eq(input_key(KEY_W), 1, "key before a sequence");
+    assert_eq(input_key(KEY_RIGHT), 1, "the sequence");
+    assert_eq(input_key(KEY_Q), 1, "key after a sequence");
+    assert_eq(keys_down(), 3, "exactly those three");
+    return 0;
+}
+
+fn test_escape_key(): i64 {
+    # A lone ESC waits for the rest of a possible sequence before it counts.
+    fresh(); feed("^");
+    input_end_frame();
+    assert_eq(input_key(KEY_ESC), 0, "a lone ESC is held at the first frame end");
+    _keys_clear();
+    input_end_frame();
+    assert_eq(input_key(KEY_ESC), 1, "and reported at the second");
+    assert_eq(_in_state, IN_GROUND, "parser back in its ground state");
+
+    # ESC then an ordinary key in the same read: both count.
+    fresh(); feed("^q");
+    assert_eq(input_key(KEY_ESC), 1, "ESC followed by a key reports ESC");
+    assert_eq(input_key(KEY_Q), 1, "and the key itself");
+    return 0;
+}
+
+fn test_split_sequence(): i64 {
+    # The rest of a sequence arrives in the next frame's read.
+    fresh(); feed("^");
+    input_end_frame();
+    _keys_clear();
+    feed("[A");
+    input_end_frame();
+    assert_eq(input_key(KEY_UP), 1, "a sequence split across two reads is still Up");
+    assert_eq(input_key(KEY_ESC), 0, "and no Escape");
+    assert_eq(input_key(KEY_A), 0, "and no A");
+
+    # A stray ESC [ is dropped after the wait, so later keys are not swallowed.
+    fresh(); feed("^[12");
+    input_end_frame();
+    input_end_frame();
+    _keys_clear();
+    feed("3");
+    assert_eq(input_key(KEY_3), 1, "a key typed after an abandoned sequence counts");
+    assert_eq(input_key(KEY_ESC), 0, "an abandoned sequence is not an Escape");
+    return 0;
+}
+
+fn test_any_key(): i64 {
+    fresh(); feed("z");
+    assert_eq(input_any(), 1, "an unmapped letter is still 'any key'");
+    assert_eq(keys_down(), 0, "but maps to no game key");
+    fresh();
+    assert_eq(input_any(), 0, "no input, no key");
+    return 0;
+}
+
+fn main(): i64 {
+    test_enter();
+    test_plain_arrows();
+    test_function_keys_do_not_leak();
+    test_modified_arrows();
+    test_back_to_back();
+    test_escape_key();
+    test_split_sequence();
+    test_any_key();
+    return assert_summary();
+}
+
+var rc = main();
+syscall(60, rc);

@@ -1,0 +1,67 @@
+# encom-hits -- scores.cyr
+# Persistent high scores: six little-endian i64 slots in ./scores.dat, one per
+# game in GAME_* order, clamped on load to [0, 99999999] (8 digits, the most
+# draw_number shows).
+
+var _scores[6];
+
+# Set by scores_update when the run actually beat the stored best. The
+# game-over screens need this: they render AFTER scores_update has already
+# written the new high score, so comparing game_score against scores_get()
+# there can never be true (the 0.6.2 bug — "NEW BEST" was unreachable in all
+# four game-over screens). Cleared when a new run starts.
+var game_new_best = 0;
+
+fn scores_load() {
+    # O_NOFOLLOW here too — a planted symlink could otherwise point this read at
+    # a file the user can see but the attacker cannot. The clamp below already
+    # bounds whatever bytes arrive, so a hostile file cannot do worse than set
+    # implausible high scores.
+    var fd = syscall(SYS_OPEN, "scores.dat", O_NOFOLLOW, 0);
+    if (fd < 0) { return 0; }
+    # A short read leaves the remaining slots at their .bss zero, which the
+    # clamp accepts; nothing here depends on reading all 48 bytes.
+    syscall(SYS_READ, fd, &_scores, 48);
+    syscall(SYS_CLOSE, fd);
+
+    # Validate: clamp scores to sane range [0, 99999999]
+    var i = 0;
+    while (i < 6) {
+        var v = load64(&_scores + i * 8);
+        if (v < 0) { store64(&_scores + i * 8, 0); }
+        if (v > 99999999) { store64(&_scores + i * 8, 99999999); }
+        i = i + 1;
+    }
+    return 0;
+}
+
+fn scores_save() {
+    # O_NOFOLLOW: scores.dat is a RELATIVE path, so it lands in whatever
+    # directory the game was launched from. Without this, running the binary
+    # from a directory someone else can write to lets them plant a symlink named
+    # scores.dat and have this process truncate the target. Mode 384 = 0600.
+    var fd = syscall(SYS_OPEN, "scores.dat", O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW, 384);
+    if (fd < 0) { return 0; }
+    syscall(SYS_WRITE, fd, &_scores, 48);
+    syscall(SYS_CLOSE, fd);
+    return 0;
+}
+
+fn scores_get(game) {
+    if (game < 1) { return 0; }
+    if (game > 6) { return 0; }
+    return load64(&_scores + (game - 1) * 8);
+}
+
+fn scores_update(game, score) {
+    if (game < 1) { return 0; }
+    if (game > 6) { return 0; }
+    var idx = (game - 1) * 8;
+    var old = load64(&_scores + idx);
+    if (score > old) {
+        store64(&_scores + idx, score);
+        game_new_best = 1;
+        scores_save();
+    }
+    return 0;
+}

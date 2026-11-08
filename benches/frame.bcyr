@@ -1,0 +1,186 @@
+# encom-hits frame-time benchmarks — what one 60 Hz frame costs, per game.
+# Run: cyrius bench benches/frame.bcyr  (or: cyrius bench)
+#
+# Each "<game> frame" is that game's render plus the glow pass over a busy,
+# mid-run state: what play_frame spends on it every frame. A game's simulation
+# step runs only every few frames and is small next to its render, except in
+# two games, which are timed on their own: the Battle Tanks A* search (once
+# per tank tick) and the Light Cycles lookahead (every frame). engine_blit is
+# the /dev/fb0 present path, at the integer scale a 2560x1440 panel gets (6).
+# The frame budget at 60 Hz is 16.7 ms; the project target is under 4 ms.
+#
+# The bench harness is a test-only dependency, included here directly rather
+# than listed in cyrius.cyml, so it never lands in the game binary (the same
+# arrangement as cyrius-polyomino). Only game modules are included, not the
+# front end, so this file also builds against a pre-0.8.3 tree for a
+# before/after comparison.
+
+include "lib/bench.cyr"
+
+include "src/types.cyr"
+include "src/engine.cyr"
+include "src/draw.cyr"
+include "src/lightcycles.cyr"
+include "src/grid.cyr"
+include "src/gridbugs.cyr"
+include "src/ai.cyr"
+include "src/tanks.cyr"
+include "src/mcpcone.cyr"
+include "src/interceptors.cyr"
+include "src/discs.cyr"
+include "src/glow.cyr"
+
+# Late-game Light Cycles: both cycles AI-driven until the grid is crowded.
+fn setup_lightcycles() {
+    lc_init();
+    var t = 0;
+    while (t < 400) {
+        if (lc_game_over() == 1) { return 0; }
+        lc_set_direction(1, ai_lightcycles(lc_p1_x, lc_p1_y, lc_p1_dir, LC_GRID_W, LC_GRID_H));
+        lc_set_direction(2, ai_lightcycles(lc_p2_x, lc_p2_y, lc_p2_dir, LC_GRID_W, LC_GRID_H));
+        lc_update();
+        t = t + 1;
+    }
+    return 0;
+}
+
+# Interceptors at full strength: an 8-enemy wave with bullets in flight.
+fn setup_interceptors() {
+    int_init();
+    var w = 0;
+    while (w < 5) { int_spawn_wave(); w = w + 1; }
+    var t = 0;
+    while (t < 40) {
+        if (t % 6 == 0) { int_player_x = 40 + t * 6; int_fire(); }
+        int_update();
+        t = t + 1;
+    }
+    return 0;
+}
+
+# Disc Arena with both discs in flight.
+fn setup_discs() {
+    disc_init();
+    disc_throw_player(2);
+    var t = 0;
+    while (t < 70) { disc_update(); t = t + 1; }
+    return 0;
+}
+
+fn main(): i64 {
+    alloc_init();
+    var fb = alloc(SCREEN_W * (SCREEN_H * 4));
+    var i = 0;
+
+    var b = bench_new("draw_clear");
+    bench_batch_start(b);
+    i = 0;
+    while (i < 2000) { draw_clear(fb); i = i + 1; }
+    bench_batch_stop(b, 2000);
+    bench_report(b);
+
+    # The glow pass on an all-black frame: its fixed cost, every pixel taking
+    # the fast reject. Includes one draw_clear (the row above) per iteration.
+    b = bench_new("glow_apply (black)");
+    bench_batch_start(b);
+    i = 0;
+    while (i < 500) { draw_clear(fb); glow_apply(fb, SCREEN_W, SCREEN_H); i = i + 1; }
+    bench_batch_stop(b, 500);
+    bench_report(b);
+
+    setup_lightcycles();
+    b = bench_new("lightcycles render");
+    bench_batch_start(b);
+    i = 0;
+    while (i < 200) { lc_render(fb); i = i + 1; }
+    bench_batch_stop(b, 200);
+    bench_report(b);
+
+    b = bench_new("lightcycles frame");
+    bench_batch_start(b);
+    i = 0;
+    while (i < 200) { lc_render(fb); glow_apply(fb, SCREEN_W, SCREEN_H); i = i + 1; }
+    bench_batch_stop(b, 200);
+    bench_report(b);
+
+    b = bench_new("ai_lightcycles");
+    bench_batch_start(b);
+    i = 0;
+    while (i < 100000) { ai_lightcycles(lc_p2_x, lc_p2_y, lc_p2_dir, LC_GRID_W, LC_GRID_H); i = i + 1; }
+    bench_batch_stop(b, 100000);
+    bench_report(b);
+
+    gb_init(5);
+    b = bench_new("gridbugs frame");
+    bench_batch_start(b);
+    i = 0;
+    while (i < 200) { gb_render(fb); glow_apply(fb, SCREEN_W, SCREEN_H); i = i + 1; }
+    bench_batch_stop(b, 200);
+    bench_report(b);
+
+    tk_init(54321);
+    b = bench_new("tanks frame");
+    bench_batch_start(b);
+    i = 0;
+    while (i < 200) { tk_render(fb); glow_apply(fb, SCREEN_W, SCREEN_H); i = i + 1; }
+    bench_batch_stop(b, 200);
+    bench_report(b);
+
+    # Opposite corners: the longest search the maze offers.
+    b = bench_new("ai_find_direction_maze");
+    bench_batch_start(b);
+    i = 0;
+    while (i < 2000) { ai_find_direction_maze(TK_GRID_W - 2, TK_GRID_H - 2, 1, 1, TK_GRID_W, TK_GRID_H); i = i + 1; }
+    bench_batch_stop(b, 2000);
+    bench_report(b);
+
+    mcp_init();
+    i = 0;
+    while (i < 10) { mcp_update(); i = i + 1; }
+    b = bench_new("mcpcone frame");
+    bench_batch_start(b);
+    i = 0;
+    while (i < 200) { mcp_render(fb); glow_apply(fb, SCREEN_W, SCREEN_H); i = i + 1; }
+    bench_batch_stop(b, 200);
+    bench_report(b);
+
+    setup_interceptors();
+    b = bench_new("interceptors frame");
+    bench_batch_start(b);
+    i = 0;
+    while (i < 200) { int_render(fb); glow_apply(fb, SCREEN_W, SCREEN_H); i = i + 1; }
+    bench_batch_stop(b, 200);
+    bench_report(b);
+
+    setup_discs();
+    b = bench_new("discs frame");
+    bench_batch_start(b);
+    i = 0;
+    while (i < 200) { disc_render(fb); glow_apply(fb, SCREEN_W, SCREEN_H); i = i + 1; }
+    bench_batch_stop(b, 200);
+    bench_report(b);
+
+    # The present path on a 2560x1440 32bpp panel: scale 6, centred.
+    _fb_ptr = fb;
+    _fb_xres = 2560;
+    _fb_yres = 1440;
+    _fb_bpp = 32;
+    _fb_pitch = 2560 * 4;
+    _fb_scale = 6;
+    _fb_xoff = (2560 - SCREEN_W * 6) / 2;
+    _fb_yoff = 0;
+    _fb_src_w = SCREEN_W;
+    _fb_src_h = SCREEN_H;
+    _fb_blit = alloc(_fb_pitch * _fb_yres);
+    b = bench_new("engine_blit 2560x1440");
+    bench_batch_start(b);
+    i = 0;
+    while (i < 30) { engine_blit(); i = i + 1; }
+    bench_batch_stop(b, 30);
+    bench_report(b);
+
+    return 0;
+}
+
+var r = main();
+syscall(60, r);

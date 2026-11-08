@@ -56,14 +56,21 @@ fn lc_cell(x, y) {
     return _lc_grid_get(x, y);
 }
 
-fn lc_move_player(px, py, dir) {
-    var x = px;
-    var y = py;
-    if (dir == DIR_UP) { y = y - 1; }
-    if (dir == DIR_DOWN) { y = y + 1; }
-    if (dir == DIR_LEFT) { x = x - 1; }
-    if (dir == DIR_RIGHT) { x = x + 1; }
-    return x * 1000 + y;
+# One step from (x, y) in `dir`, one axis per helper. Until 0.8.3 this was a
+# single lc_move_player returning x * 1000 + y, which lc_update unpacked with
+# / and %. That only round-trips on the grid: a step off the left edge from
+# (0, 30) unpacked as (0, -970) and one off the top from (20, 0) as (19, 999).
+# Both happen to read as walls, so the crash was still detected, but by luck.
+fn _lc_step_x(x, dir) {
+    if (dir == DIR_LEFT) { return x - 1; }
+    if (dir == DIR_RIGHT) { return x + 1; }
+    return x;
+}
+
+fn _lc_step_y(y, dir) {
+    if (dir == DIR_UP) { return y - 1; }
+    if (dir == DIR_DOWN) { return y + 1; }
+    return y;
 }
 
 fn lc_update() {
@@ -83,17 +90,15 @@ fn lc_update() {
     var nx1 = ox1;
     var ny1 = oy1;
     if (lc_p1_alive) {
-        var packed1 = lc_move_player(ox1, oy1, lc_p1_dir);
-        nx1 = packed1 / 1000;
-        ny1 = packed1 % 1000;
+        nx1 = _lc_step_x(ox1, lc_p1_dir);
+        ny1 = _lc_step_y(oy1, lc_p1_dir);
     }
 
     var nx2 = ox2;
     var ny2 = oy2;
     if (lc_p2_alive) {
-        var packed2 = lc_move_player(ox2, oy2, lc_p2_dir);
-        nx2 = packed2 / 1000;
-        ny2 = packed2 % 1000;
+        nx2 = _lc_step_x(ox2, lc_p2_dir);
+        ny2 = _lc_step_y(oy2, lc_p2_dir);
     }
 
     # Both destination tests read the SAME pre-move grid (walls, boundaries and

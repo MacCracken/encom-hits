@@ -16,20 +16,32 @@ var tk_ai_y = 0;
 var tk_ai_dir = 0;
 var tk_ai_alive = 0;
 
-# Projectile state (one per player)
-var tk_p1_shot_x = 0;
-var tk_p1_shot_y = 0;
-var tk_p1_shot_dx = 0;
-var tk_p1_shot_dy = 0;
-var tk_p1_shot_alive = 0;
-var tk_p1_shot_bounces = 0;
+# Projectiles: one live shot per tank, slot TK_SHOT_P1 for the player and
+# TK_SHOT_AI for the AI, TS_FIELDS fields each. Until 0.8.3 these were twelve
+# named globals driven by two copies of the same updater, one per shooter.
+enum TkShot {
+    TK_SHOT_P1 = 0;
+    TK_SHOT_AI = 1;
+    TS_X       = 0;
+    TS_Y       = 1;
+    TS_DX      = 2;
+    TS_DY      = 3;
+    TS_ALIVE   = 4;
+    TS_BOUNCES = 5;
+    TS_FIELDS  = 6;
+}
+var _tk_shot[12];
 
-var tk_ai_shot_x = 0;
-var tk_ai_shot_y = 0;
-var tk_ai_shot_dx = 0;
-var tk_ai_shot_dy = 0;
-var tk_ai_shot_alive = 0;
-var tk_ai_shot_bounces = 0;
+fn _tk_shot_get(s, f) { return load64(&_tk_shot + (s * TS_FIELDS + f) * 8); }
+fn _tk_shot_set(s, f, v) { store64(&_tk_shot + (s * TS_FIELDS + f) * 8, v); return 0; }
+
+fn tk_shot_alive(s) { return _tk_shot_get(s, TS_ALIVE); }
+fn tk_shot_x(s) { return _tk_shot_get(s, TS_X); }
+fn tk_shot_y(s) { return _tk_shot_get(s, TS_Y); }
+
+# Latched player move request, applied once per game tick by
+# tk_apply_pending_move (main loop input only latches it).
+var tk_p1_pending = DIR_NONE;
 
 # AI shoot cooldown
 var tk_ai_cooldown = 0;
@@ -50,10 +62,11 @@ fn tk_init(seed) {
     tk_ai_dir = DIR_LEFT;
     tk_ai_alive = 1;
 
-    # No active projectiles
-    tk_p1_shot_alive = 0;
-    tk_ai_shot_alive = 0;
+    # No active projectiles, no move queued from the previous run
+    _tk_shot_set(TK_SHOT_P1, TS_ALIVE, 0);
+    _tk_shot_set(TK_SHOT_AI, TS_ALIVE, 0);
     tk_ai_cooldown = 0;
+    tk_p1_pending = DIR_NONE;
 
     return 0;
 }
@@ -72,7 +85,25 @@ fn tk_try_move(x, y, dir) {
     return 0;
 }
 
+# Apply the latched request: exactly one cell, on one axis, per game tick.
+fn tk_apply_pending_move() {
+    var d = tk_p1_pending;
+    tk_p1_pending = DIR_NONE;
+    if (tk_p1_alive == 0) { return 0; }
+    if (d == DIR_NONE) { return 0; }
+    if (tk_try_move(tk_p1_x, tk_p1_y, d) == 0) { return 0; }
+    if (d == DIR_UP)    { tk_p1_y = tk_p1_y - 1; }
+    if (d == DIR_DOWN)  { tk_p1_y = tk_p1_y + 1; }
+    if (d == DIR_LEFT)  { tk_p1_x = tk_p1_x - 1; }
+    if (d == DIR_RIGHT) { tk_p1_x = tk_p1_x + 1; }
+    return 0;
+}
+
 fn tk_fire_shot(x, y, dir, is_player) {
+    var s = TK_SHOT_AI;
+    if (is_player) { s = TK_SHOT_P1; }
+    if (_tk_shot_get(s, TS_ALIVE) != 0) { return 0; }
+
     var dx = 0;
     var dy = 0;
     if (dir == DIR_UP) { dy = 0 - 1; }
@@ -80,129 +111,64 @@ fn tk_fire_shot(x, y, dir, is_player) {
     if (dir == DIR_LEFT) { dx = 0 - 1; }
     if (dir == DIR_RIGHT) { dx = 1; }
 
-    if (is_player) {
-        if (tk_p1_shot_alive == 0) {
-            tk_p1_shot_x = x;
-            tk_p1_shot_y = y;
-            tk_p1_shot_dx = dx;
-            tk_p1_shot_dy = dy;
-            tk_p1_shot_alive = 1;
-            tk_p1_shot_bounces = 0;
-        }
-    } else {
-        if (tk_ai_shot_alive == 0) {
-            tk_ai_shot_x = x;
-            tk_ai_shot_y = y;
-            tk_ai_shot_dx = dx;
-            tk_ai_shot_dy = dy;
-            tk_ai_shot_alive = 1;
-            tk_ai_shot_bounces = 0;
-        }
-    }
+    _tk_shot_set(s, TS_X, x);
+    _tk_shot_set(s, TS_Y, y);
+    _tk_shot_set(s, TS_DX, dx);
+    _tk_shot_set(s, TS_DY, dy);
+    _tk_shot_set(s, TS_ALIVE, 1);
+    _tk_shot_set(s, TS_BOUNCES, 0);
     return 0;
 }
 
-fn _tk_update_shot_player() {
-    if (tk_p1_shot_alive == 0) { return 0; }
+# Advance shot `s` one cell. Returns 1 when it hits the tank at (tx, ty); the
+# caller decides whose tank that is.
+fn _tk_update_shot(s, tx, ty) {
+    if (_tk_shot_get(s, TS_ALIVE) == 0) { return 0; }
+    var x = _tk_shot_get(s, TS_X);
+    var y = _tk_shot_get(s, TS_Y);
+    var dx = _tk_shot_get(s, TS_DX);
+    var dy = _tk_shot_get(s, TS_DY);
 
-    # Test the cell the shot is ON before advancing. Both updaters used to move
-    # first and only test the destination, so an enemy standing on the shot's
-    # own cell was a blind spot the projectile passed straight through.
-    if (tk_p1_shot_x == tk_ai_x) {
-        if (tk_p1_shot_y == tk_ai_y) {
-            tk_ai_alive = 0;
-            tk_p1_shot_alive = 0;
-            return 0;
+    # Test the cell the shot is ON before advancing. Through 0.6.3 the updaters
+    # moved first and only tested the destination, so an enemy standing on the
+    # shot's own cell was a blind spot the projectile passed straight through.
+    if (x == tx) {
+        if (y == ty) {
+            _tk_shot_set(s, TS_ALIVE, 0);
+            return 1;
         }
     }
 
-    var nx = tk_p1_shot_x + tk_p1_shot_dx;
-    var ny = tk_p1_shot_y + tk_p1_shot_dy;
-
-    # Check wall collision
+    # Wall collision: a ricochet reverses the shot in place and costs a bounce.
     var wall_dir = 0;
-    if (tk_p1_shot_dx > 0) { wall_dir = 2; }
-    if (tk_p1_shot_dx < 0) { wall_dir = 3; }
-    if (tk_p1_shot_dy < 0) { wall_dir = 0; }
-    if (tk_p1_shot_dy > 0) { wall_dir = 1; }
-
-    if (maze_has_wall(tk_p1_shot_x, tk_p1_shot_y, wall_dir)) {
-        # Ricochet: reflect
-        if (tk_p1_shot_dx != 0) { tk_p1_shot_dx = 0 - tk_p1_shot_dx; }
-        if (tk_p1_shot_dy != 0) { tk_p1_shot_dy = 0 - tk_p1_shot_dy; }
-        tk_p1_shot_bounces = tk_p1_shot_bounces + 1;
-        if (tk_p1_shot_bounces > TK_MAX_BOUNCES) {
-            tk_p1_shot_alive = 0;
-        }
+    if (dx > 0) { wall_dir = 2; }
+    if (dx < 0) { wall_dir = 3; }
+    if (dy < 0) { wall_dir = 0; }
+    if (dy > 0) { wall_dir = 1; }
+    if (maze_has_wall(x, y, wall_dir)) {
+        if (dx != 0) { _tk_shot_set(s, TS_DX, 0 - dx); }
+        if (dy != 0) { _tk_shot_set(s, TS_DY, 0 - dy); }
+        var bounces = _tk_shot_get(s, TS_BOUNCES) + 1;
+        _tk_shot_set(s, TS_BOUNCES, bounces);
+        if (bounces > TK_MAX_BOUNCES) { _tk_shot_set(s, TS_ALIVE, 0); }
         return 0;
     }
 
-    # Bounds check
-    if (nx < 0) { tk_p1_shot_alive = 0; return 0; }
-    if (nx >= TK_GRID_W) { tk_p1_shot_alive = 0; return 0; }
-    if (ny < 0) { tk_p1_shot_alive = 0; return 0; }
-    if (ny >= TK_GRID_H) { tk_p1_shot_alive = 0; return 0; }
+    var nx = x + dx;
+    var ny = y + dy;
+    if (nx < 0) { _tk_shot_set(s, TS_ALIVE, 0); return 0; }
+    if (nx >= TK_GRID_W) { _tk_shot_set(s, TS_ALIVE, 0); return 0; }
+    if (ny < 0) { _tk_shot_set(s, TS_ALIVE, 0); return 0; }
+    if (ny >= TK_GRID_H) { _tk_shot_set(s, TS_ALIVE, 0); return 0; }
+    _tk_shot_set(s, TS_X, nx);
+    _tk_shot_set(s, TS_Y, ny);
 
-    tk_p1_shot_x = nx;
-    tk_p1_shot_y = ny;
-
-    # Hit AI tank?
-    if (tk_p1_shot_x == tk_ai_x) {
-        if (tk_p1_shot_y == tk_ai_y) {
-            tk_ai_alive = 0;
-            tk_p1_shot_alive = 0;
+    if (nx == tx) {
+        if (ny == ty) {
+            _tk_shot_set(s, TS_ALIVE, 0);
+            return 1;
         }
     }
-
-    return 0;
-}
-
-fn _tk_update_shot_ai() {
-    if (tk_ai_shot_alive == 0) { return 0; }
-
-    # Same pre-advance test as the player's shot (see _tk_update_shot_player).
-    if (tk_ai_shot_x == tk_p1_x) {
-        if (tk_ai_shot_y == tk_p1_y) {
-            tk_p1_alive = 0;
-            tk_ai_shot_alive = 0;
-            return 0;
-        }
-    }
-
-    var nx = tk_ai_shot_x + tk_ai_shot_dx;
-    var ny = tk_ai_shot_y + tk_ai_shot_dy;
-
-    var wall_dir = 0;
-    if (tk_ai_shot_dx > 0) { wall_dir = 2; }
-    if (tk_ai_shot_dx < 0) { wall_dir = 3; }
-    if (tk_ai_shot_dy < 0) { wall_dir = 0; }
-    if (tk_ai_shot_dy > 0) { wall_dir = 1; }
-
-    if (maze_has_wall(tk_ai_shot_x, tk_ai_shot_y, wall_dir)) {
-        if (tk_ai_shot_dx != 0) { tk_ai_shot_dx = 0 - tk_ai_shot_dx; }
-        if (tk_ai_shot_dy != 0) { tk_ai_shot_dy = 0 - tk_ai_shot_dy; }
-        tk_ai_shot_bounces = tk_ai_shot_bounces + 1;
-        if (tk_ai_shot_bounces > TK_MAX_BOUNCES) {
-            tk_ai_shot_alive = 0;
-        }
-        return 0;
-    }
-
-    if (nx < 0) { tk_ai_shot_alive = 0; return 0; }
-    if (nx >= TK_GRID_W) { tk_ai_shot_alive = 0; return 0; }
-    if (ny < 0) { tk_ai_shot_alive = 0; return 0; }
-    if (ny >= TK_GRID_H) { tk_ai_shot_alive = 0; return 0; }
-
-    tk_ai_shot_x = nx;
-    tk_ai_shot_y = ny;
-
-    if (tk_ai_shot_x == tk_p1_x) {
-        if (tk_ai_shot_y == tk_p1_y) {
-            tk_p1_alive = 0;
-            tk_ai_shot_alive = 0;
-        }
-    }
-
     return 0;
 }
 
@@ -248,9 +214,9 @@ fn tk_update() {
         }
     }
 
-    # Update projectiles
-    _tk_update_shot_player();
-    _tk_update_shot_ai();
+    # Update projectiles: the player's first, then the AI's
+    if (_tk_update_shot(TK_SHOT_P1, tk_ai_x, tk_ai_y) == 1) { tk_ai_alive = 0; }
+    if (_tk_update_shot(TK_SHOT_AI, tk_p1_x, tk_p1_y) == 1) { tk_p1_alive = 0; }
 
     return 0;
 }
@@ -284,18 +250,15 @@ fn tk_render(fb) {
         if (tk_ai_dir == DIR_RIGHT) { draw_hline(fb, ax + 3, ax + 6, ay, COLOR_WHITE); }
     }
 
-    # Player projectile (white)
-    if (tk_p1_shot_alive) {
-        var sx = tk_p1_shot_x * TK_CELL_W + TK_CELL_W / 2;
-        var sy = tk_p1_shot_y * TK_CELL_H + TK_CELL_H / 2;
-        draw_filled_rect(fb, sx - 1, sy - 1, 3, 3, COLOR_WHITE);
-    }
-
-    # AI projectile (white)
-    if (tk_ai_shot_alive) {
-        var sx = tk_ai_shot_x * TK_CELL_W + TK_CELL_W / 2;
-        var sy = tk_ai_shot_y * TK_CELL_H + TK_CELL_H / 2;
-        draw_filled_rect(fb, sx - 1, sy - 1, 3, 3, COLOR_WHITE);
+    # Projectiles (white), the player's then the AI's
+    var shot = TK_SHOT_P1;
+    while (shot <= TK_SHOT_AI) {
+        if (_tk_shot_get(shot, TS_ALIVE)) {
+            var sx = _tk_shot_get(shot, TS_X) * TK_CELL_W + TK_CELL_W / 2;
+            var sy = _tk_shot_get(shot, TS_Y) * TK_CELL_H + TK_CELL_H / 2;
+            draw_filled_rect(fb, sx - 1, sy - 1, 3, 3, COLOR_WHITE);
+        }
+        shot = shot + 1;
     }
 
     return 0;

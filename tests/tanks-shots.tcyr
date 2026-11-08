@@ -1,0 +1,154 @@
+# tanks-shots -- cover for the Battle Tanks projectile updater and maze A*.
+#
+# 0.8.3 merged the player's and the AI's shot updaters, two copies of the same
+# 50 lines, into one _tk_update_shot(slot, target), and cut the A* working set
+# from 4,800 slots per array (sized for a grid it never ran on) to the maze's
+# 192. These cases pin down what both must still do: the pre-advance hit
+# (0.7.0), ricochet and the bounce limit, who a shot can hit, and A* first
+# steps around a wall. Everything runs on a hand-opened maze, so the shots'
+# paths are known exactly.
+
+include "src/types.cyr"
+include "src/draw.cyr"
+include "src/lightcycles.cyr"
+include "src/grid.cyr"
+include "src/ai.cyr"
+include "src/tanks.cyr"
+
+# A 16x12 maze with every interior wall removed: only the outer border stands.
+fn open_maze() {
+    maze_generate(TK_GRID_W, TK_GRID_H, 1);
+    var y = 0;
+    while (y < TK_GRID_H) {
+        var x = 0;
+        while (x < TK_GRID_W) {
+            if (y > 0) { _maze_wall_set(x, y, 0, 0); }
+            if (y < TK_GRID_H - 1) { _maze_wall_set(x, y, 1, 0); }
+            if (x < TK_GRID_W - 1) { _maze_wall_set(x, y, 2, 0); }
+            if (x > 0) { _maze_wall_set(x, y, 3, 0); }
+            x = x + 1;
+        }
+        y = y + 1;
+    }
+    return 0;
+}
+
+# Tanks parked where a test wants them, both alive, no shots in flight.
+fn place(px, py, ax, ay) {
+    open_maze();
+    tk_p1_x = px; tk_p1_y = py; tk_p1_alive = 1; tk_p1_dir = DIR_RIGHT;
+    tk_ai_x = ax; tk_ai_y = ay; tk_ai_alive = 1; tk_ai_dir = DIR_LEFT;
+    _tk_shot_set(TK_SHOT_P1, TS_ALIVE, 0);
+    _tk_shot_set(TK_SHOT_AI, TS_ALIVE, 0);
+    return 0;
+}
+
+fn step_shots(n) {
+    var i = 0;
+    while (i < n) {
+        if (_tk_update_shot(TK_SHOT_P1, tk_ai_x, tk_ai_y) == 1) { tk_ai_alive = 0; }
+        if (_tk_update_shot(TK_SHOT_AI, tk_p1_x, tk_p1_y) == 1) { tk_p1_alive = 0; }
+        i = i + 1;
+    }
+    return 0;
+}
+
+fn test_point_blank(): i64 {
+    # The AI is on the cell the shot starts from: the pre-advance test hits.
+    place(3, 3, 3, 3);
+    tk_fire_shot(3, 3, DIR_RIGHT, 1);
+    step_shots(1);
+    assert_eq(tk_ai_alive, 0, "point-blank shot hits a tank on its own cell");
+    assert_eq(tk_shot_alive(TK_SHOT_P1), 0, "and is spent");
+    return 0;
+}
+
+fn test_down_a_corridor(): i64 {
+    place(2, 5, 6, 5);
+    tk_fire_shot(2, 5, DIR_RIGHT, 1);
+    step_shots(3);
+    assert_eq(tk_ai_alive, 1, "three cells along, the AI four away is not hit yet");
+    assert_eq(tk_shot_x(TK_SHOT_P1), 5, "the shot moves one cell per update");
+    step_shots(1);
+    assert_eq(tk_ai_alive, 0, "the fourth update lands on the AI");
+    assert_eq(tk_p1_alive, 1, "the shooter is untouched");
+    return 0;
+}
+
+fn test_ricochet_and_bounce_limit(): i64 {
+    # Fired right from x=13: reaches the east border at x=15, bounces.
+    place(0, 0, 0, 11);
+    tk_fire_shot(13, 5, DIR_RIGHT, 1);
+    step_shots(2);
+    assert_eq(tk_shot_x(TK_SHOT_P1), 15, "travels to the last column");
+    step_shots(1);
+    assert_eq(tk_shot_alive(TK_SHOT_P1), 1, "first bounce keeps the shot alive");
+    assert_eq(tk_shot_x(TK_SHOT_P1), 15, "a bounce turns the shot in place");
+    assert_eq(_tk_shot_get(TK_SHOT_P1, TS_DX), 0 - 1, "and reverses it");
+    step_shots(15);
+    assert_eq(tk_shot_x(TK_SHOT_P1), 0, "back across to the west border");
+    step_shots(1);
+    assert_eq(tk_shot_alive(TK_SHOT_P1), 1, "second bounce: still alive");
+    step_shots(15);
+    step_shots(1);
+    assert_eq(tk_shot_alive(TK_SHOT_P1), 0, "third bounce exceeds TK_MAX_BOUNCES");
+    return 0;
+}
+
+fn test_own_shot_spares_shooter(): i64 {
+    # The player's shot ricochets back through the player's own cell.
+    place(15, 4, 0, 11);
+    tk_fire_shot(15, 4, DIR_RIGHT, 1);
+    step_shots(3);
+    assert_eq(tk_p1_alive, 1, "a player's shot never hits the player");
+    return 0;
+}
+
+fn test_ai_shot_hits_player(): i64 {
+    place(4, 7, 8, 7);
+    tk_fire_shot(8, 7, DIR_LEFT, 0);
+    step_shots(4);
+    assert_eq(tk_p1_alive, 0, "the AI's shot hits the player");
+    assert_eq(tk_ai_alive, 1, "and never the AI");
+    return 0;
+}
+
+fn test_one_shot_per_tank(): i64 {
+    place(2, 2, 10, 10);
+    tk_fire_shot(2, 2, DIR_DOWN, 1);
+    tk_fire_shot(2, 2, DIR_RIGHT, 1);
+    assert_eq(_tk_shot_get(TK_SHOT_P1, TS_DY), 1, "a second shot while one is live is ignored");
+    assert_eq(_tk_shot_get(TK_SHOT_P1, TS_DX), 0, "the first shot's heading stands");
+    return 0;
+}
+
+fn test_astar(): i64 {
+    assert_gt(AI_MAX_CELLS + 1, TK_GRID_W * TK_GRID_H, "A* working set covers the whole maze");
+    open_maze();
+    assert_eq(ai_find_direction_maze(5, 5, 9, 5, TK_GRID_W, TK_GRID_H), DIR_RIGHT, "open row: step right");
+    assert_eq(ai_find_direction_maze(5, 5, 5, 1, TK_GRID_W, TK_GRID_H), DIR_UP, "open column: step up");
+    assert_eq(ai_find_direction_maze(5, 5, 5, 5, TK_GRID_W, TK_GRID_H), DIR_NONE, "already there");
+    # Wall off (5,5)'s east side: the first step must go around it.
+    _maze_wall_set(5, 5, 2, 1);
+    _maze_wall_set(6, 5, 3, 1);
+    var d = ai_find_direction_maze(5, 5, 6, 5, TK_GRID_W, TK_GRID_H);
+    assert_neq(d, DIR_RIGHT, "a wall is never stepped through");
+    assert_neq(d, DIR_NONE, "a detour is found");
+    # A grid larger than the working set is refused, not overrun.
+    assert_eq(ai_find_direction_maze(0, 0, 1, 0, 20, 20), DIR_NONE, "oversized grid refused");
+    return 0;
+}
+
+fn main(): i64 {
+    test_point_blank();
+    test_down_a_corridor();
+    test_ricochet_and_bounce_limit();
+    test_own_shot_spares_shooter();
+    test_ai_shot_hits_player();
+    test_one_shot_per_tank();
+    test_astar();
+    return assert_summary();
+}
+
+var rc = main();
+syscall(60, rc);

@@ -1,83 +1,130 @@
 # engine-blit -- regression cover for the framebuffer blit path.
-# CI cannot exercise this (no /dev/fb0), and 0.6.2 shipped an out-of-bounds
-# write here: with _fb_scale floored to 1, a panel smaller than the 320x240
-# surface made engine_blit walk the full surface and scribble past _fb_blit.
-# Mutation-checked: reverting the extent clamp turns the guard assertion red.
+# CI cannot exercise this (no /dev/fb0), so every case below fakes a panel in
+# RAM with guard bytes either side, lays the 320x240 surface out on it with the
+# real engine_layout, runs engine_blit, and checks EVERY panel pixel against a
+# model: the scaled source pixel inside the active area, untouched (0) in the
+# letterbox, guards intact.
+#
+# History:
+# - 0.6.2 shipped an out-of-bounds write here: with _fb_scale floored to 1, a
+#   panel smaller than the 320x240 surface made engine_blit walk the full
+#   surface and scribble past _fb_blit (case 1). Mutation-checked: reverting
+#   the extent clamp turns the guard assertion red.
+# - 0.8.3 widened the 32bpp stores to two pixels per store64 and unrolled the
+#   row replication to 32 bytes per pass. Through 0.8.2 this test only ran
+#   scale 1, where the replication loop never executes, so cases 2-5 were
+#   added. Mutation-checked: an off-by-8 in the unrolled copy turns the pixel
+#   assertions red.
 
 include "src/types.cyr"
 include "src/engine.cyr"
 
-# Fake panel: 8 px guard on each side so an overrun is detectable.
 enum T {
-    PX = 100;      # panel width
-    PY = 80;       # panel height (both SMALLER than the 320x240 surface)
-    PBPP = 32;
     GUARD = 0x5A;
+    PAD = 64;
 }
 
-fn main(): i64 {
-    var pitch = PX * 4;
-    var panel_sz = pitch * PY;
-    var pad = 64;
-    var base = alloc(panel_sz + pad + pad);
-    memset(base, GUARD, panel_sz + pad + pad);
-    var panel = base + pad;
-    memset(panel, 0, panel_sz);
+var _surf = 0;
 
-    # A 320x240 BGRX source, every pixel a distinct value.
-    var surf = alloc(SCREEN_W * (SCREEN_H * 4));
+# A 320x240 BGRX source in which every pixel is a distinct value.
+fn make_surface() {
+    _surf = alloc(SCREEN_W * (SCREEN_H * 4));
     var i = 0;
     while (i < SCREEN_W * SCREEN_H) {
-        store32(surf + i * 4, i & 0x00FFFFFF);
+        store32(_surf + i * 4, (i * 2654435761) & 0x00FFFFFF);
         i = i + 1;
     }
+    return 0;
+}
 
-    _fb_ptr = surf;
-    _fb_xres = PX;  _fb_yres = PY;  _fb_bpp = PBPP;  _fb_pitch = pitch;
+# What a panel pixel must hold after the blit, as the bpp's raw value.
+fn model(x, y, bpp) {
+    if (x < _fb_xoff) { return 0; }
+    if (y < _fb_yoff) { return 0; }
+    var sx = (x - _fb_xoff) / _fb_scale;
+    var sy = (y - _fb_yoff) / _fb_scale;
+    if (sx >= _fb_src_w) { return 0; }
+    if (sy >= _fb_src_h) { return 0; }
+    var v = load32(_surf + (sy * SCREEN_W + sx) * 4);
+    if (bpp == 16) {
+        var b = v & 0xFF;
+        var g = (v >> 8) & 0xFF;
+        var r = (v >> 16) & 0xFF;
+        return ((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3);
+    }
+    return v | 0xFF000000;
+}
+
+# Blit onto a fake xres x yres panel with the given pitch and bpp. Returns the
+# number of wrong pixels plus the number of disturbed guard bytes.
+fn run_case(xres, yres, pitch, bpp, want_scale) {
+    var panel_sz = pitch * yres;
+    var base = alloc(panel_sz + PAD + PAD);
+    memset(base, GUARD, panel_sz + PAD + PAD);
+    var panel = base + PAD;
+    memset(panel, 0, panel_sz);
+
+    _fb_ptr = _surf;
+    _fb_xres = xres;
+    _fb_yres = yres;
+    _fb_bpp = bpp;
+    _fb_pitch = pitch;
     _fb_blit = panel;
-
-    # Reproduce what engine_probe_fb computes for this panel.
-    var sx = PX / SCREEN_W;   # 0
-    var sy = PY / SCREEN_H;   # 0
-    _fb_scale = sx; if (sy < _fb_scale) { _fb_scale = sy; }
-    if (_fb_scale < 1) { _fb_scale = 1; }
-    _fb_xoff = (PX - SCREEN_W * _fb_scale) / 2; if (_fb_xoff < 0) { _fb_xoff = 0; }
-    _fb_yoff = (PY - SCREEN_H * _fb_scale) / 2; if (_fb_yoff < 0) { _fb_yoff = 0; }
-    _fb_src_w = SCREEN_W;
-    _fb_src_h = SCREEN_H;
-    if (_fb_xoff + _fb_src_w * _fb_scale > _fb_xres) { _fb_src_w = (_fb_xres - _fb_xoff) / _fb_scale; }
-    if (_fb_yoff + _fb_src_h * _fb_scale > _fb_yres) { _fb_src_h = (_fb_yres - _fb_yoff) / _fb_scale; }
-
-    assert_eq(_fb_scale, 1, "scale floors to 1 on a sub-surface panel");
-    assert_eq(_fb_src_w, PX, "src width clamped to panel width");
-    assert_eq(_fb_src_h, PY, "src height clamped to panel height");
+    engine_layout();
+    assert_eq(_fb_scale, want_scale, "engine_layout picks the expected scale");
 
     engine_blit();
 
-    # Guard bytes on both sides must be untouched.
-    var lo_ok = 1;
+    var bad = 0;
     var k = 0;
-    while (k < pad) {
-        if (load8(base + k) != GUARD) { lo_ok = 0; }
-        if (load8(panel + panel_sz + k) != GUARD) { lo_ok = 0; }
+    while (k < PAD) {
+        if (load8(base + k) != GUARD) { bad = bad + 1; }
+        if (load8(panel + panel_sz + k) != GUARD) { bad = bad + 1; }
         k = k + 1;
     }
-    assert_eq(lo_ok, 1, "engine_blit wrote nothing outside the panel buffer");
-
-    # Spot-check pixel fidelity at scale 1: panel(x,y) == surface(x,y) | opaque.
-    var px_ok = 1;
     var y = 0;
-    while (y < PY) {
+    while (y < yres) {
+        var row = panel + y * pitch;
         var x = 0;
-        while (x < PX) {
-            var got = load32(panel + y * pitch + x * 4);
-            var want = (((y * SCREEN_W) + x) & 0x00FFFFFF) | 0xFF000000;
-            if (got != want) { px_ok = 0; }
+        while (x < xres) {
+            var got = 0;
+            if (bpp == 16) { got = load16(row + x * 2); }
+            else { got = load32(row + x * 4); }
+            if (got != model(x, y, bpp)) { bad = bad + 1; }
             x = x + 1;
+        }
+        # Pitch padding past the last pixel must stay untouched as well.
+        var pad = xres * (bpp / 8);
+        while (pad < pitch) {
+            if (load8(row + pad) != 0) { bad = bad + 1; }
+            pad = pad + 1;
         }
         y = y + 1;
     }
-    assert_eq(px_ok, 1, "every blitted pixel matches the source, forced opaque");
+    return bad;
+}
+
+fn main(): i64 {
+    alloc_init();
+    make_surface();
+
+    # 1. Panel smaller than the surface: scale floors to 1, extent clamps.
+    assert_eq(run_case(100, 80, 100 * 4, 32, 1), 0, "100x80 32bpp: clamped, nothing outside the panel");
+    assert_eq(_fb_src_w, 100, "src width clamped to panel width");
+    assert_eq(_fb_src_h, 80, "src height clamped to panel height");
+
+    # 2. Odd scale with letterbox on both axes: exercises the odd-pixel store32.
+    assert_eq(run_case(1000, 740, 1000 * 4, 32, 3), 0, "1000x740 32bpp scale 3, centred");
+
+    # 3. 16bpp with a padded scanline (pitch > xres * 2).
+    assert_eq(run_case(1300, 970, 1300 * 2 + 64, 16, 4), 0, "1300x970 16bpp scale 4, padded pitch");
+
+    # 4. 32bpp with a padded scanline.
+    assert_eq(run_case(700, 500, 700 * 4 + 32, 32, 2), 0, "700x500 32bpp scale 2, padded pitch");
+
+    # 5. The test machine's real panel geometry: 2560x1440, scale 6.
+    assert_eq(run_case(2560, 1440, 2560 * 4, 32, 6), 0, "2560x1440 32bpp scale 6");
+    assert_eq(_fb_xoff, 320, "2560-wide panel centres with a 320 px letterbox");
 
     return assert_summary();
 }

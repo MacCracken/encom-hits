@@ -2,6 +2,12 @@
 # Everything is lines. The art is math.
 # Bresenham's line algorithm is the foundation -- every visual builds from it.
 
+# Every primitive below writes a pixel as ONE 32-bit store of
+# `color | 0xFF000000`. On this little-endian surface that is exactly the four
+# bytes B, G, R, 0xFF the primitives wrote one byte at a time through 0.8.2, so
+# the output is byte-identical (all 14 reference frames are unchanged) at a
+# quarter of the stores.
+
 # Draw a line using Bresenham's algorithm.
 # All game visuals are composed of lines -- no sprites, no textures.
 fn draw_line(fb, x0, y0, x1, y1, color) {
@@ -18,6 +24,7 @@ fn draw_line(fb, x0, y0, x1, y1, color) {
     var err = dx - dy;
     var x = x0;
     var y = y0;
+    var px = color | 0xFF000000;
 
     while (1) {
         # Plot pixel if in bounds
@@ -25,11 +32,7 @@ fn draw_line(fb, x0, y0, x1, y1, color) {
             if (x < SCREEN_W) {
                 if (y >= 0) {
                     if (y < SCREEN_H) {
-                        var offset = (y * SCREEN_W + x) * 4;
-                        store8(fb + offset, color & 255);
-                        store8(fb + offset + 1, (color >> 8) & 255);
-                        store8(fb + offset + 2, (color >> 16) & 255);
-                        store8(fb + offset + 3, 255);
+                        store32(fb + (y * SCREEN_W + x) * 4, px);
                     }
                 }
             }
@@ -64,14 +67,12 @@ fn draw_hline(fb, x0, x1, y, color) {
     if (start < 0) { start = 0; }
     if (end >= SCREEN_W) { end = SCREEN_W - 1; }
 
-    var x = start;
-    while (x <= end) {
-        var offset = (y * SCREEN_W + x) * 4;
-        store8(fb + offset, color & 255);
-        store8(fb + offset + 1, (color >> 8) & 255);
-        store8(fb + offset + 2, (color >> 16) & 255);
-        store8(fb + offset + 3, 255);
-        x = x + 1;
+    var px = color | 0xFF000000;
+    var p = fb + (y * SCREEN_W + start) * 4;
+    var e = fb + (y * SCREEN_W + end) * 4;
+    while (p <= e) {
+        store32(p, px);
+        p = p + 4;
     }
     return 0;
 }
@@ -86,14 +87,12 @@ fn draw_vline(fb, x, y0, y1, color) {
     if (start < 0) { start = 0; }
     if (end >= SCREEN_H) { end = SCREEN_H - 1; }
 
-    var y = start;
-    while (y <= end) {
-        var offset = (y * SCREEN_W + x) * 4;
-        store8(fb + offset, color & 255);
-        store8(fb + offset + 1, (color >> 8) & 255);
-        store8(fb + offset + 2, (color >> 16) & 255);
-        store8(fb + offset + 3, 255);
-        y = y + 1;
+    var px = color | 0xFF000000;
+    var p = fb + (start * SCREEN_W + x) * 4;
+    var e = fb + (end * SCREEN_W + x) * 4;
+    while (p <= e) {
+        store32(p, px);
+        p = p + SCREEN_W * 4;
     }
     return 0;
 }
@@ -144,10 +143,6 @@ fn draw_pixel(fb, x, y, color) {
     if (x >= SCREEN_W) { return 0; }
     if (y < 0) { return 0; }
     if (y >= SCREEN_H) { return 0; }
-    var offset = (y * SCREEN_W + x) * 4;
-    store8(fb + offset, color & 255);
-    store8(fb + offset + 1, (color >> 8) & 255);
-    store8(fb + offset + 2, (color >> 16) & 255);
-    store8(fb + offset + 3, 255);
+    store32(fb + (y * SCREEN_W + x) * 4, color | 0xFF000000);
     return 0;
 }

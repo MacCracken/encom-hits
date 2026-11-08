@@ -6,6 +6,9 @@
 # a build artifact (stdlib copies / git-override symlinks), not source.
 /lib/
 
+# High scores the game writes to the directory it was launched from
+/scores.dat
+
 # IDE
 .idea/
 .vscode/

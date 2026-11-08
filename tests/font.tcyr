@@ -1,0 +1,84 @@
+# font -- every character the 3x5 bitmap font claims must draw something.
+#
+# Until 0.8.3 the font had no J, Q, V or Z, and a missing glyph draws nothing
+# at all: the menu footer "Q TO QUIT" rendered as "TO UIT", every "GAME OVER"
+# result card as "GAME O ER", and MCP Cone's "DEREZZED" as "DERE  ED".
+
+include "src/types.cyr"
+include "src/draw.cyr"
+include "src/text.cyr"
+
+var fb = 0;
+
+# Pixels a glyph lights when drawn alone at scale 1.
+fn lit(ch) {
+    draw_clear(fb);
+    draw_char(fb, ch, 10, 10, COLOR_WHITE, 1);
+    var n = 0;
+    var y = 10;
+    while (y < 15) {
+        var x = 10;
+        while (x < 13) {
+            if (load32(fb + (y * SCREEN_W + x) * 4) != 0) { n = n + 1; }
+            x = x + 1;
+        }
+        y = y + 1;
+    }
+    return n;
+}
+
+# The glyph's 15 cells as a bit pattern, for comparing two glyphs.
+fn sig(ch) {
+    draw_clear(fb);
+    draw_char(fb, ch, 10, 10, COLOR_WHITE, 1);
+    var bits = 0;
+    var y = 10;
+    while (y < 15) {
+        var x = 10;
+        while (x < 13) {
+            bits = bits * 2;
+            if (load32(fb + (y * SCREEN_W + x) * 4) != 0) { bits = bits + 1; }
+            x = x + 1;
+        }
+        y = y + 1;
+    }
+    return bits;
+}
+
+fn main(): i64 {
+    alloc_init();
+    fb = alloc(SCREEN_W * (SCREEN_H * 4));
+
+    var missing = 0;
+    var ch = 65;
+    while (ch <= 90) {
+        if (lit(ch) == 0) { missing = missing + 1; }
+        ch = ch + 1;
+    }
+    assert_eq(missing, 0, "every letter A-Z has a glyph");
+
+    missing = 0;
+    ch = 48;
+    while (ch <= 57) {
+        if (lit(ch) == 0) { missing = missing + 1; }
+        ch = ch + 1;
+    }
+    assert_eq(missing, 0, "every digit 0-9 has a glyph");
+
+    assert_gt(lit(45), 0, "- has a glyph");
+    assert_gt(lit(46), 0, ". has a glyph");
+    assert_gt(lit(58), 0, ": has a glyph");
+    assert_gt(lit(124), 0, "| has a glyph");
+    assert_gt(lit(39), 0, "' has a glyph");
+    assert_eq(lit(32), 0, "space draws nothing");
+
+    # The glyphs added in 0.8.3 must not duplicate their nearest look-alikes.
+    assert_neq(sig(81), sig(57), "Q differs from 9");
+    assert_neq(sig(81), sig(79), "Q differs from O");
+    assert_neq(sig(86), sig(85), "V differs from U");
+    assert_neq(sig(90), sig(50), "Z differs from 2");
+    return assert_summary();
+}
+
+var rc = main();
+syscall(60, rc);

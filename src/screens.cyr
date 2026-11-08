@@ -1,0 +1,277 @@
+# encom-hits -- screens.cyr
+# Everything drawn outside a game: the splash, the menu, each game's title card
+# and the result card shown when a run ends. Also the front-end state those
+# screens read and the menu writes.
+
+# Which screen or game is running. GAME_MENU (0), or a GAME_* id once a title
+# card has finished.
+var current_game = 0;
+var menu_selection = 1;  # highlighted menu row, 1-6 (a GAME_* id)
+
+# Title card state: menu_update starts one, play_frame runs it down and then
+# starts pending_game.
+var title_active = 0;
+var title_timer = 0;
+var pending_game = 0;
+
+# Score for the run in progress.
+var game_score = 0;
+
+# Splash screen — perspective grid + large vector ENCOM lettering
+fn splash_render(fb) {
+    draw_clear(fb);
+
+    # Perspective grid floor — vanishing point at (160, 105)
+    var vp_x = 160;
+    var vp_y = 105;
+
+    # Converging vertical lines from VP to bottom edge
+    var gx = 0;
+    while (gx <= SCREEN_W) {
+        draw_line(fb, vp_x, vp_y, gx, SCREEN_H - 1, COLOR_DIM_BLUE);
+        gx = gx + 20;
+    }
+
+    # Horizontal perspective lines (quadratic spacing = depth illusion)
+    var gi = 1;
+    while (gi <= 11) {
+        var gy = vp_y + gi * gi;
+        if (gy < SCREEN_H) {
+            # Lines narrow toward VP, widen toward bottom
+            var half = gi * 14;
+            if (half > vp_x) { half = vp_x; }
+            draw_hline(fb, vp_x - half, vp_x + half, gy, COLOR_DIM_BLUE);
+        }
+        gi = gi + 1;
+    }
+
+    # Horizon line
+    draw_hline(fb, 0, SCREEN_W - 1, vp_y, COLOR_BLUE);
+
+    # Large vector "ENCOM" — line-drawn letters, 36px tall, 28px wide
+    var lx = 70;
+    var ly = 18;
+    var lh = 36;
+    var lw = 28;
+    var lg = 10;
+
+    # E
+    draw_line(fb, lx, ly, lx, ly + lh, COLOR_CYAN);
+    draw_line(fb, lx, ly, lx + lw, ly, COLOR_CYAN);
+    draw_line(fb, lx, ly + lh / 2, lx + lw - 4, ly + lh / 2, COLOR_CYAN);
+    draw_line(fb, lx, ly + lh, lx + lw, ly + lh, COLOR_CYAN);
+    lx = lx + lw + lg;
+
+    # N
+    draw_line(fb, lx, ly + lh, lx, ly, COLOR_CYAN);
+    draw_line(fb, lx, ly, lx + lw, ly + lh, COLOR_CYAN);
+    draw_line(fb, lx + lw, ly, lx + lw, ly + lh, COLOR_CYAN);
+    lx = lx + lw + lg;
+
+    # C
+    draw_line(fb, lx + lw, ly, lx, ly, COLOR_CYAN);
+    draw_line(fb, lx, ly, lx, ly + lh, COLOR_CYAN);
+    draw_line(fb, lx, ly + lh, lx + lw, ly + lh, COLOR_CYAN);
+    lx = lx + lw + lg;
+
+    # O
+    draw_line(fb, lx, ly, lx + lw, ly, COLOR_CYAN);
+    draw_line(fb, lx + lw, ly, lx + lw, ly + lh, COLOR_CYAN);
+    draw_line(fb, lx + lw, ly + lh, lx, ly + lh, COLOR_CYAN);
+    draw_line(fb, lx, ly + lh, lx, ly, COLOR_CYAN);
+    lx = lx + lw + lg;
+
+    # M
+    draw_line(fb, lx, ly + lh, lx, ly, COLOR_CYAN);
+    draw_line(fb, lx, ly, lx + lw / 2, ly + lh / 2, COLOR_CYAN);
+    draw_line(fb, lx + lw / 2, ly + lh / 2, lx + lw, ly, COLOR_CYAN);
+    draw_line(fb, lx + lw, ly, lx + lw, ly + lh, COLOR_CYAN);
+
+    # "CLASSICS" centered below in red
+    draw_text(fb, "CLASSICS", 112, 62, COLOR_RED, 2);
+
+    # Accent lines framing the title
+    draw_hline(fb, 50, 270, 12, COLOR_BLUE);
+    draw_hline(fb, 50, 270, 84, COLOR_BLUE);
+
+    # Small diamonds at accent line ends
+    draw_pixel(fb, 48, 12, COLOR_CYAN);
+    draw_pixel(fb, 272, 12, COLOR_CYAN);
+    draw_pixel(fb, 48, 84, COLOR_CYAN);
+    draw_pixel(fb, 272, 84, COLOR_CYAN);
+
+    # "PRESS ANY KEY" at bottom
+    draw_text(fb, "PRESS ANY KEY", 96, 92, COLOR_DIM_BLUE, 1);
+
+    return 0;
+}
+
+# One menu row: the game's name, highlighted when selected, and its best
+# score when there is one. Rows are numbered by GAME_* id.
+fn _menu_row(fb, game, text) {
+    var y = 62 + (game - 1) * 22;
+    var color = COLOR_DIM_BLUE;
+    if (menu_selection == game) { color = COLOR_WHITE; }
+    draw_text(fb, text, 80, y, color, 2);
+    var best = scores_get(game);
+    if (best > 0) { draw_number(fb, best, 256, y + 4, COLOR_DIM_BLUE, 1); }
+    return 0;
+}
+
+# Menu rendering
+fn menu_render(fb) {
+    draw_clear(fb);
+
+    # Corner brackets framing the title
+    draw_vline(fb, 60, 14, 26, COLOR_BLUE);
+    draw_hline(fb, 60, 74, 14, COLOR_BLUE);
+    draw_vline(fb, 260, 14, 26, COLOR_BLUE);
+    draw_hline(fb, 246, 260, 14, COLOR_BLUE);
+
+    # Title: ENCOM CLASSICS
+    draw_text(fb, "ENCOM CLASSICS", 76, 20, COLOR_CYAN, 3);
+
+    # Divider line with end marks
+    draw_hline(fb, 40, 280, 50, COLOR_BLUE);
+    draw_vline(fb, 40, 48, 52, COLOR_BLUE);
+    draw_vline(fb, 280, 48, 52, COLOR_BLUE);
+
+    # Game list (6 games, 22px spacing)
+    _menu_row(fb, GAME_LIGHTCYCLES, "1. LIGHT CYCLES");
+    _menu_row(fb, GAME_GRIDBUGS, "2. GRID BUGS");
+    _menu_row(fb, GAME_TANKS, "3. BATTLE TANKS");
+    _menu_row(fb, GAME_MCPCONE, "4. MCP CONE");
+    _menu_row(fb, GAME_INTERCEPTORS, "5. INTERCEPTORS");
+    _menu_row(fb, GAME_DISCS, "6. DISC ARENA");
+
+    # Footer
+    draw_hline(fb, 40, 280, 200, COLOR_BLUE);
+    draw_text(fb, "ENTER TO SELECT", 80, 210, COLOR_DIM_BLUE, 1);
+    draw_text(fb, "Q TO QUIT", 112, 224, COLOR_DIM_BLUE, 1);
+
+    return 0;
+}
+
+fn _menu_launch(game) {
+    pending_game = game;
+    title_active = 1;
+    title_timer = 90;
+    return 0;
+}
+
+# Step the highlight by `d` rows, wrapping 1 <-> 6.
+fn _menu_move(d) {
+    menu_selection = menu_selection + d;
+    if (menu_selection < 1) { menu_selection = 6; }
+    if (menu_selection > 6) { menu_selection = 1; }
+    return 0;
+}
+
+fn menu_update() {
+    if (input_key(KEY_UP) == 1) { _menu_move(0 - 1); }
+    if (input_key(KEY_DOWN) == 1) { _menu_move(1); }
+    if (input_key(KEY_W) == 1) { _menu_move(0 - 1); }
+    if (input_key(KEY_S) == 1) { _menu_move(1); }
+
+    # A number key selects AND launches its game; Enter launches the
+    # highlighted one.
+    var game = GAME_LIGHTCYCLES;
+    while (game <= GAME_DISCS) {
+        if (input_key(KEY_1 + game - 1) == 1) {
+            menu_selection = game;
+            _menu_launch(game);
+        }
+        game = game + 1;
+    }
+    if (input_key(KEY_ENTER) == 1) { _menu_launch(menu_selection); }
+
+    return 0;
+}
+
+# Title card rendering -- neon text + preview graphic per game
+fn title_render(fb, game) {
+    draw_clear(fb);
+
+    if (game == GAME_LIGHTCYCLES) {
+        draw_text(fb, "LIGHT CYCLES", 52, 70, COLOR_CYAN, 3);
+        draw_hline(fb, 60, 155, 130, COLOR_CYAN);
+        draw_vline(fb, 155, 130, 150, COLOR_CYAN);
+        draw_hline(fb, 165, 260, 130, COLOR_ORANGE);
+        draw_vline(fb, 165, 110, 130, COLOR_ORANGE);
+    }
+    if (game == GAME_GRIDBUGS) {
+        draw_text(fb, "GRID BUGS", 76, 70, COLOR_CYAN, 3);
+        draw_hline(fb, 80, 240, 130, COLOR_BLUE);
+        draw_hline(fb, 80, 240, 150, COLOR_BLUE);
+        draw_vline(fb, 120, 120, 160, COLOR_BLUE);
+        draw_vline(fb, 200, 120, 160, COLOR_BLUE);
+        draw_line(fb, 156, 136, 164, 144, COLOR_RED);
+        draw_line(fb, 164, 136, 156, 144, COLOR_RED);
+    }
+    if (game == GAME_TANKS) {
+        draw_text(fb, "BATTLE TANKS", 52, 70, COLOR_CYAN, 3);
+        draw_filled_rect(fb, 153, 132, 14, 14, COLOR_CYAN);
+        draw_vline(fb, 160, 120, 132, COLOR_WHITE);
+        draw_filled_rect(fb, 110, 130, 5, 5, COLOR_WHITE);
+    }
+    if (game == GAME_MCPCONE) {
+        draw_text(fb, "MCP CONE", 88, 70, COLOR_CYAN, 3);
+        draw_rect(fb, 120, 115, 80, 50, COLOR_RED);
+        draw_rect(fb, 135, 125, 50, 30, COLOR_RED);
+        draw_rect(fb, 150, 133, 20, 14, COLOR_RED);
+        draw_filled_rect(fb, 157, 138, 6, 4, COLOR_WHITE);
+    }
+    if (game == GAME_INTERCEPTORS) {
+        draw_text(fb, "INTERCEPTORS", 52, 70, COLOR_CYAN, 3);
+        # Recognizer shape
+        draw_rect(fb, 145, 125, 30, 16, COLOR_RED);
+        draw_vline(fb, 152, 141, 152, COLOR_RED);
+        draw_vline(fb, 168, 141, 152, COLOR_RED);
+        # Player chevron
+        draw_line(fb, 160, 160, 152, 170, COLOR_CYAN);
+        draw_line(fb, 160, 160, 168, 170, COLOR_CYAN);
+    }
+    if (game == GAME_DISCS) {
+        draw_text(fb, "DISC ARENA", 64, 70, COLOR_CYAN, 3);
+        # Two paddles + disc
+        draw_filled_rect(fb, 110, 128, 4, 24, COLOR_CYAN);
+        draw_filled_rect(fb, 206, 128, 4, 24, COLOR_ORANGE);
+        draw_line(fb, 160, 137, 163, 140, COLOR_WHITE);
+        draw_line(fb, 163, 140, 160, 143, COLOR_WHITE);
+        draw_line(fb, 160, 143, 157, 140, COLOR_WHITE);
+        draw_line(fb, 157, 140, 160, 137, COLOR_WHITE);
+    }
+
+    draw_text(fb, "GET READY", 104, 180, COLOR_DIM_BLUE, 2);
+
+    var hi = scores_get(game);
+    if (hi > 0) {
+        draw_text(fb, "BEST:", 112, 200, COLOR_DIM_BLUE, 1);
+        draw_number(fb, hi, 136, 200, COLOR_DIM_BLUE, 1);
+    }
+
+    return 0;
+}
+
+# The card drawn over a finished run: a headline at row `y`, then the score,
+# NEW BEST when the run set one, and how to leave. Grid Bugs, MCP Cone and
+# Interceptors use y = 90; the two-player result (gameover_render) uses 100.
+fn _result_card(fb, text, x, color, y) {
+    draw_text(fb, text, x, y, color, 3);
+    draw_text(fb, "SCORE:", 100, y + 35, COLOR_DIM_BLUE, 2);
+    draw_number(fb, game_score, 172, y + 35, COLOR_WHITE, 2);
+    if (game_new_best == 1) {
+        draw_text(fb, "NEW BEST", 104, y + 58, COLOR_GREEN, 2);
+    }
+    draw_text(fb, "ESC FOR MENU", 88, y + 80, COLOR_DIM_BLUE, 2);
+    return 0;
+}
+
+# Result card for the head-to-head games (Light Cycles, Battle Tanks, Disc
+# Arena): winner 1 or 2, or 0 for a draw.
+fn gameover_render(fb, winner) {
+    if (winner == 1) { _result_card(fb, "PLAYER 1 WINS", 64, COLOR_CYAN, 100); }
+    if (winner == 2) { _result_card(fb, "PLAYER 2 WINS", 64, COLOR_ORANGE, 100); }
+    if (winner == 0) { _result_card(fb, "DRAW", 120, COLOR_WHITE, 100); }
+    return 0;
+}
