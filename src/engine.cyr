@@ -5,27 +5,25 @@
 # Display: /dev/fb0 direct write (BGRA 32-bit) with PPM fallback.
 # Timing: clock_gettime(CLOCK_MONOTONIC) + nanosleep for fixed 60fps.
 
-# Syscall numbers (Linux x86_64)
+# Syscall numbers and open(2) flags come from the vendored stdlib
+# (lib/syscalls.cyr, listed in cyrius.cyml [deps].stdlib), which selects the
+# right values per target: SYS_READ/WRITE/CLOSE/IOCTL/NANOSLEEP/LSEEK,
+# O_RDWR/WRONLY/CREAT/TRUNC/NOFOLLOW and CLOCK_MONOTONIC. Do NOT redeclare
+# them here. Until 0.8.2 this file carried its own x86_64 copies, and a local
+# definition overrides the stdlib's ("last definition wins"), so an aarch64
+# build silently issued getxattr instead of lseek (the /dev/fb0 present path
+# froze after one frame), and O_NOFOLLOW (x86_64 1 << 17) arrived as
+# O_LARGEFILE, dropping the symlink refusal on every file the game creates.
+#
+# Only the two numbers the stdlib does not provide on every target stay local.
+# Both are x86_64 numbers; the aarch64 backend's syscall translation maps them
+# (open 2 -> openat with AT_FDCWD, clock_gettime 228 -> 113), confirmed with
+# `qemu-aarch64 -strace`.
+#   SYS_OPEN          — stdlib defines it on x86_64 only (aarch64 has no open(2))
+#   SYS_CLOCK_GETTIME — not in the stdlib on any target
 enum Sys {
-    SYS_READ = 0;
-    SYS_WRITE = 1;
     SYS_OPEN = 2;
-    SYS_CLOSE = 3;
-    SYS_IOCTL = 16;
-    SYS_NANOSLEEP = 35;
     SYS_CLOCK_GETTIME = 228;
-}
-
-enum ClockId {
-    CLOCK_MONOTONIC = 1;
-}
-
-enum FileFlags {
-    O_RDWR = 2;
-    O_WRONLY = 1;
-    O_CREAT = 64;
-    O_TRUNC = 512;
-    O_NOFOLLOW = 131072;   # 1 << 17 (Linux). Refuse to open a symlink.
 }
 
 # Linux framebuffer geometry probe.
@@ -37,7 +35,6 @@ enum FileFlags {
 # cyrius-doom and cyrius-polyomino). We must query the real geometry and
 # integer-scale + center the surface, honoring the physical pitch.
 enum FbIoctl {
-    SYS_LSEEK           = 8;
     FBIOGET_VSCREENINFO = 0x4600;   # fb_var_screeninfo
     FBIOGET_FSCREENINFO = 0x4602;   # fb_fix_screeninfo
     # fb_var_screeninfo field offsets (u32 each)

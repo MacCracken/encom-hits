@@ -6,6 +6,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.8.2] — 2026-11-07
+
+Quick-wins release. Clears the open roadmap items that needed neither a design decision nor a play-test, and reorganises what is left into 0.8.3 → 1.0.0. The cross-target check turned up two real aarch64 defects. No game-logic or render changes.
+
+### Fixed
+- **aarch64: the `/dev/fb0` present path stopped updating after the first frame.** `src/engine.cyr` declared its own `SYS_LSEEK = 8`. A local definition overrides the stdlib's (the compiler: "last definition wins"), and on aarch64, 8 is `getxattr`. Under `qemu-aarch64 -strace` every frame issued `getxattr(3, NULL, NULL, 96) = -EFAULT`, so the file offset was never rewound. The first full-panel write succeeded, and every later one failed with `ENOSPC` because the offset sat at the end of the device. On real aarch64 hardware the display would have frozen on the splash's first frame.
+- **aarch64: `O_NOFOLLOW` was silently dropped on every file the game opens.** The local `O_NOFOLLOW = 131072` (x86_64 `1 << 17`) is `O_LARGEFILE` on aarch64. So the symlink refusal added in 0.6.3 did not exist there. Reproduced under qemu with `scores.dat` symlinked to another file: the 0.8.1 aarch64 build opened it as `O_RDONLY|O_LARGEFILE` and read all 48 bytes through the link. The fixed build gets `ELOOP`. The 14 `/tmp` PPM writes now carry `O_NOFOLLOW` as well. No shipped binary was affected, because `release.yml` has only ever built x86_64.
+- **Root cause, fixed once:** `src/engine.cyr` carried private x86_64 copies of `SYS_READ`, `SYS_WRITE`, `SYS_CLOSE`, `SYS_IOCTL`, `SYS_NANOSLEEP`, `SYS_LSEEK`, `CLOCK_MONOTONIC` and the five `O_*` flags. All twelve are gone, and the file now uses the stdlib's per-target values from `lib/syscalls.cyr`. Only `SYS_OPEN` and `SYS_CLOCK_GETTIME` stay local, because the stdlib does not define them on every target. The aarch64 backend's syscall translation maps both x86_64 numbers (open → `openat(AT_FDCWD, …)`, 228 → `clock_gettime`), confirmed with `qemu-aarch64 -strace`.
+
+### Added
+- **CI: `cyrius fmt --check` hard gate** over `src/` and `tests/`. It was held back while three files failed fmt, and everything has been canonically formatted since the 0.7.1 reflow. The step was checked to exit 1 on a misformatted file.
+- **CI: aarch64 cross-build gate.** It runs `cyrius build --aarch64` and fails on the compiler's `conflicting value` and `raw syscall` warnings, the two that mean "this target gets a different syscall or flag than you wrote". It is build-only: the binary is neither run nor shipped. Mutation-checked: replayed against the 0.8.1 `engine.cyr`, it fails and lists all eight defects; against 0.8.2 it passes.
+
+### Changed
+- **`cyrius.cyml` lists `syscalls` in `[deps].stdlib`**, because the game now depends on its constants directly. This changes nothing in the vendored closure (still 19 files, and `cyrius.lock` is unchanged): `alloc` and `assert` already included it. The manifest comment that explained the old private enum was rewritten.
+- **Roadmap reorganised.** Completed sections were removed, since this file is the record. The remaining work is planned as:
+  - **0.8.3:** P(-1) audit, refactor, hardening and optimization sweep.
+  - **0.8.4:** play-test and difficulty tuning.
+  - **0.9.0:** release candidate.
+  - **1.0.0:** release.
+- **Doc drift:** `CLAUDE.md` said each game was 200–300 lines and the collection ~3.9K. It is 226–315 and ~4.4K. README's architecture counts were updated for the shorter `engine.cyr`.
+
+### Notes
+- **x86_64 is behaviourally unchanged.** Every removed constant had the same value as the stdlib's x86_64 one. The `--ppm` syscall trace (`qemu-x86_64 -strace`, addresses normalised) is identical to 0.8.1 apart from the `/proc/self/cmdline` length, which differs only because the binaries live at different paths. All 14 frames are byte-identical to 0.8.1, both with and without `scores.dat`. Lint, fmt and all 52 assertions across 4 suites pass.
+- **aarch64 now matches x86_64.** Under `qemu-aarch64`, all 14 frames are byte-identical to the x86_64 frames in both `scores.dat` modes. A probe built with the same constants shows `lseek(3, 3, SEEK_SET) = 3`.
+- Binary 402,728 → 402,632 bytes (−96), and static data 253,720 → 253,624. That is exactly twelve 8-byte slots, one per removed duplicate constant.
+
 ## [0.8.1] — 2026-11-07
 
 Toolchain and stdlib refresh onto Cyrius 6.7.18. No game-logic or render changes. One CI fix was required.

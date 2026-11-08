@@ -57,12 +57,12 @@ Neon wireframe on black. No textures, no sprites, no assets. Every pixel is a co
 
 ## Architecture
 
-4,380 lines across 14 source files. Shared engine (framebuffer, drawing, input, glow, AI, grid) with per-game modules.
+4,377 lines across 14 source files. Shared engine (framebuffer, drawing, input, glow, AI, grid) with per-game modules.
 
 ```
 src/
   main.cyr          — Entry, menu, bitmap text, splash, scoring, --ppm mode (1,141)
-  engine.cyr        — Framebuffer, /dev/fb0 + PPM output, frame timing (406)
+  engine.cyr        — Framebuffer, /dev/fb0 + PPM output, frame timing (403)
   draw.cyr          — Bresenham line, hline/vline, rect, pixel (153)
   input.cyr         — Terminal raw mode, keyboard state, escape sequences (172)
   glow.cyr          — Additive neon bloom effect (106)

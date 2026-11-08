@@ -1,212 +1,82 @@
 # ENCOM's Hits — Development Roadmap
 
-> **Status**: v0.8.1 (Cyrius 6.7.18 toolchain) — pre-1.0 hardening | **Last Updated**: 2026-11-07
+> **Status**: v0.8.2 (Cyrius 6.7.18 toolchain) — pre-1.0 hardening | **Last Updated**: 2026-11-07
+
+This file tracks only what is left. Shipped work, release by release, is recorded in
+[CHANGELOG.md](../../CHANGELOG.md).
+
+**Where things stand:** all six games are complete and playable with AI, scoring and
+persistent high scores, on one shared engine: framebuffer with `/dev/fb0` blit, Bresenham
+drawing, raw-mode input, glow, A*, and maze generation. The road to 1.0.0 is confidence
+work, not features. No new games.
+
+| Release | Theme | State |
+|---------|-------|-------|
+| v0.8.2 | Quick wins: roadmap cleanup, cross-target check, CI gates | **Current** |
+| v0.8.3 | P(-1) sweep: audit, refactor, hardening, optimization, repair | Next |
+| v0.8.4 | Play-test and difficulty tuning on real hardware | Planned |
+| v0.9.0 | Release candidate: `cyrius audit` clean, aarch64 on hardware, docs final | Planned |
+| v1.0.0 | Release | Target |
 
 ---
 
-## v0.1.0 — Engine + Light Cycles
+## v0.8.2 — Quick Wins (current)
 
-The engine and the simplest game. If Light Cycles works, the engine works.
-
-| # | Item | Status | Notes |
-|---|------|--------|-------|
-| 1 | types.cyr — colors, constants, shared types | Done | Neon palette, screen dims, game IDs, per-game grid constants |
-| 2 | engine.cyr — framebuffer init, clear, present | Done | /dev/fb0 direct write + PPM fallback, clock_gettime timing |
-| 3 | draw.cyr — Bresenham line, rect, circle | Done | line, hline, vline, rect, filled_rect, pixel, clear |
-| 4 | input.cyr — keyboard state, player input | Done | termios raw mode, non-blocking stdin, escape sequences |
-| 5 | lightcycles.cyr — grid, trails, collision, win | Done | 176 lines. 80x60 grid, two players, 180-turn prevention |
-| 6 | main.cyr — game loop, frame timing | Done | 60fps target, game dispatch, per-game tick rates |
-
-**Exit criteria**: Two light cycles on screen, leaving trails, dying on collision. **Met.**
-
-## v0.2.0 — Grid Bugs
-
-Grid-based movement + pathfinding.
+The open items that could be closed without a design decision or a play-test.
 
 | # | Item | Status | Notes |
 |---|------|--------|-------|
-| 1 | grid.cyr — grid data structure, intersections | Done | Iterative backtracker maze gen, shared with tanks |
-| 2 | ai.cyr — A* pathfinding on grid | Done | A*, chase direction, Light Cycles lookahead AI |
-| 3 | gridbugs.cyr — bugs chase player, clear grid | Done | 256 lines. Simple chase (not A*), level progression |
+| 1 | Roadmap reorganised | Done | Completed sections removed, since the CHANGELOG is the record. Remaining work planned as 0.8.3 → 1.0.0 |
+| 2 | Cross-target build check (aarch64) | Done | Builds, and renders all 14 `--ppm` frames byte-identical to x86_64 under `qemu-aarch64`. The check found two defects, both fixed. A local `SYS_LSEEK = 8` overrode the stdlib's: on aarch64, 8 is `getxattr`, so the `/dev/fb0` present path stopped updating after its first frame. A local `O_NOFOLLOW` reached the kernel as `O_LARGEFILE`, which silently dropped the 0.6.3 symlink refusal. `src/engine.cyr` now takes its syscall numbers and open flags from `lib/syscalls.cyr`, and the x86_64 build is behaviourally unchanged |
+| 3 | CI: `cyrius fmt --check` hard gate | Done | Held back while three files failed fmt. `src/` and `tests/` are clean now |
+| 4 | CI: aarch64 cross-build gate | Done | Fails on the compiler's "conflicting value" and "raw syscall" warnings. Mutation-checked: it fails on the 0.8.1 `engine.cyr` and passes on 0.8.2 |
+| 5 | Doc drift | Done | `CLAUDE.md` line counts, README architecture counts |
 
-**Exit criteria**: Player moves on grid lines, bugs pursue, score on clearing. **Met.**
+**Exit criteria**: clean build + lint + fmt + aarch64 gate + 52 assertions across 4 suites. All 14 frames must be byte-identical to 0.8.1 on x86_64 (with and without `scores.dat`) and to x86_64 on aarch64. **Met.**
 
-## v0.3.0 — Battle Tanks
+## v0.8.3 — P(-1) Audit, Refactor, Hardening & Optimization Sweep
 
-Projectile physics + ricochet + maze.
+A full pass over `src/`, run the 0.6.3 way:
+- Every finding is reproduced (a failing test or a measured repro) before it is fixed.
+- Every fix is covered by a test or a byte-identical render check.
+- Paths CI cannot reach are mutation-checked.
 
-| # | Item | Status | Notes |
-|---|------|--------|-------|
-| 1 | tanks.cyr — tank movement in maze, turret aim | Done | 274 lines |
-| 2 | Projectile with wall ricochet (reflection angle) | Done | Up to 2 bounces |
-| 3 | AI tank — pathfind to player, fire periodically | Done | Maze-aware A* via ai_find_direction_maze |
-| 4 | Procedural maze generation | Done | Iterative backtracker in grid.cyr |
+| # | Lens | Scope | Status |
+|---|------|-------|--------|
+| 1 | Correctness | All six games + engine: state reset between runs, game-over → restart → menu paths, tick math, collision edge cases, score and timer overflow | Pending |
+| 2 | Memory safety | Every load/store with a computed index: grid accessors, A* arrays, bullet and enemy pools, framebuffer writes near the edges, `draw_number`. Also any function-local array (only `input.cyr` `buf[4]` is known and safe; a local `var X[N]` reserves one 8-byte slot) | Pending |
+| 3 | Security / input hardening | Absorbs the old "deep security audit" item. The main surface is the `input.cyr` escape-sequence parser: partial, unknown and back-to-back sequences, EOF, non-tty stdin. Also the `scores.dat` read path (short, oversized or garbage file; the clamp exists), the `/proc/self/cmdline` parse, and `/dev/fb0` geometry from an untrusted driver | Pending |
+| 4 | Refactor and dead code | Battle Tanks has duplicated player/AI shot updaters; merge them. `ai_find_direction` (open-grid A*) and `ai_chase_direction` have no callers, while README and CLAUDE.md say Grid Bugs pursues by shortest path: wire them up or remove them. `main.cyr` is the largest file (1,141 lines); candidates to split out are bitmap text, scores and screenshot mode. `src/test.cyr` is an assertion-free `[build].test` entry that makes bare `cyrius test` report 5 suites against 4 | Pending |
+| 5 | Optimization + frame-time benchmarks | First benchmark harness: `benches/*.bcyr`, which `cyrius bench` and `cyrius audit` already look for. Measure per-game update + render time against the <4 ms frame target. CLAUDE.md asks for per-game frame times in the CHANGELOG, and none has ever been recorded. Known lead: each A* call clears five 4,800-slot arrays with the stdlib `memset`, which is a byte loop | Pending |
+| 6 | Robustness | Terminal restored on every exit path (Q, Ctrl+C, error). Behaviour with no `/dev/fb0`, no tty, or an unusually small or large panel | Pending |
+| 7 | Regression net | The committed screenshots were captured without `scores.dat`, so `draw_number` is invisible to them, and 0.6.3 found a live bug hiding there. Add a with-scores reference set. CI's smoke test checks only the splash file size; compare all 14 frames | Pending |
 
-**Exit criteria**: Player tank vs AI tank in maze, shots ricochet off walls. **Met.**
+**Exit criteria**: clean build + lint + fmt + aarch64 gate, with the suite grown to cover every fix. All 14 frames must stay byte-identical except where a fix legitimately changes one; that screenshot is regenerated and called out in the CHANGELOG. Per-game frame times recorded.
 
-### Known issues
-- Tank shot update logic is duplicated between player and AI (minor — keeps each under budget)
+## v0.8.4 — Play-Test & Difficulty Tuning
 
-## v0.4.0 — MCP Cone
-
-Timing + rotation + pattern.
-
-| # | Item | Status | Notes |
-|---|------|--------|-------|
-| 1 | mcpcone.cyr — rotating barriers, gap detection | Done | 236 lines, pre-computed 16-segment trig tables |
-| 2 | Player projectile through gaps | Done | |
-| 3 | Increasing speed per ring cleared | Done | Rings accelerate +1 per broken ring |
-| 4 | Core reached = win | Done | |
-
-**Exit criteria**: Navigate through rotating concentric rings to reach the center. **Met.**
-
-## v0.5.0 — Menu + Polish
-
-The collection.
+The one thing the headless suite cannot do. This release is user-driven, on a real Linux console (`/dev/fb0`).
 
 | # | Item | Status | Notes |
 |---|------|--------|-------|
-| 1 | Game select menu (in main.cyr) | Done | Arrow/WASD nav + number keys. No separate menu.cyr — inline in main |
-| 2 | Bitmap text rendering | Done | 3x5 pixel font, A-Z + 0-9 + punctuation, scalable. draw_number for scores |
-| 3 | glow.cyr — bloom effect on bright lines | Done | Single-pass additive, 4-neighbor, brightness threshold |
-| 4 | Game-over screens | Done | Winner text, score display, "NEW BEST" indicator, ESC to return |
-| 5 | Title cards per game | Done | 1.5s neon title + preview graphic + best score per game |
-| 6 | High score persistence | Done | scores.dat binary file (4 x i64), read on startup, write on new best |
-| 7 | Transitions | Done | Title card serves as visual break between menu and game |
+| 1 | Hands-on pass, all six games on real `/dev/fb0` | Pending | Live input, feel, difficulty, frame pacing |
+| 2 | Battle Tanks pacing | Pending | Since 0.7.0 the player moves at the same 15 cells/s as the AI and its shells. It may want a different `tk_tick_rate` or a separate movement rate |
+| 3 | MCP Cone attempts | Pending | Three attempts is a first guess, not a measured curve |
+| 4 | Disc Arena AI | Pending | The AI has dodged since 0.6.3 and has never been played against |
+| 5 | Fix what play-testing surfaces | Pending | Triage each find into this release or 0.9.0 |
 
-## v0.6.0 — Cyrius 6.0.x Migration
-
-Onto the modern toolchain + ready for a first tag.
+## v0.9.0 — Release Candidate
 
 | # | Item | Status | Notes |
 |---|------|--------|-------|
-| 1 | `cyrius.toml` → `cyrius.cyml` manifest | Done | `[package]`/`[build]`/`[deps]`, pinned `cyrius = "6.0.52"`, `lib/` via `cyrius deps` |
-| 2 | 6.x toolchain compatibility | Done | Fixed the `enum*enum*literal` const mis-fold that under-sized the framebuffer (see CHANGELOG) |
-| 3 | Test suite on 6.x | Done | `tests/encom-hits.tcyr` — `assert_*` framework, 13 assertions, `cyrius test tests/encom-hits.tcyr` |
-| 4 | CI + release workflows | Done | `.github/workflows/{ci,release}.yml` mirroring cyrius-polyomino; bare-SemVer tags |
+| 1 | `cyrius audit` clean, then gated in CI | Pending | Only the docs check fails today: 80 undocumented public functions. fmt, lint and tests already pass, and bench passes once 0.8.3 adds a `.bcyr` |
+| 2 | aarch64 on real hardware | Pending | It builds and renders correctly under qemu, but the `/dev/fb0` present path and raw-mode input have never run on real aarch64. Then decide whether `release.yml` ships an aarch64 binary |
+| 3 | Docs final | Pending | README (controls, line counts, screenshots if any frame changed in 0.8.x), CLAUDE.md, SECURITY.md checked against what 0.8.3 found |
+| 4 | Release-candidate fixes | Pending | As 0.9.x patch releases |
 
-**Exit criteria**: clean build + green CI on the 6.0.52 toolchain, tag-able. **Met.**
+## v1.0.0 — Release
 
-## v0.6.1 — Framebuffer Display Fix
-
-Made the games render correctly on a real Linux console instead of tiling into
-the top band of the panel.
-
-| # | Item | Status | Notes |
-|---|------|--------|-------|
-| 1 | Probe real panel geometry | Done | `FBIOGET_VSCREENINFO` / `FBIOGET_FSCREENINFO` ioctls in `engine_init` |
-| 2 | Integer-scale + center the surface | Done | New `engine_blit`; honors the panel's `line_length` pitch and bit depth (32bpp BGRX, 16bpp RGB565) |
-| 3 | Graceful degradation | Done | PPM fallback unchanged when `/dev/fb0` is unavailable |
-
-**Exit criteria**: correct full-screen render on real hardware. **Met.**
-
-## v0.6.2 — Cyrius 6.5.36 Toolchain
-
-Toolchain + dependency refresh. No game-logic changes.
-
-| # | Item | Status | Notes |
-|---|------|--------|-------|
-| 1 | Toolchain pin 6.0.52 → 6.5.36 | Done | `cyrius.cyml` `[package].cyrius`; clears the `cycc`/manifest drift warning |
-| 2 | Vendored stdlib refreshed | Done | `cyrius deps` closure grew 9 → 17 files (`assert` now includes `syscalls`, `alloc` includes `atomic`) |
-| 3 | Dormant `[deps.vani]` pin refreshed | Done | 0.9.4 → 1.2.2, and the false "cyrius-doom pins 0.9.4" note corrected |
-| 4 | Doc/version sweep | Done | README toolchain floor + line counts, CLAUDE.md version, this roadmap, CHANGELOG |
-
-**Exit criteria**: clean build + 13/13 tests + all 14 `--ppm` frames on 6.5.36. **Met.**
-
-## v0.6.3 — P-1 Audit & Hardening
-
-Six-lens audit of `src/` (memory safety, security, correctness, performance,
-structure, robustness), every acted-on finding independently verified. Two games
-were broken as designed; the display path could not hold 60fps on a normal monitor.
-
-| # | Item | Status | Notes |
-|---|------|--------|-------|
-| 1 | Function-local array sizing | Done | Five sites to file-scope `.bss`; see item 2a under hardening below |
-| 2 | MCP Cone render/hit desync | Done | Renderer ignored rotation entirely — no ring ever appeared to turn; both paths now share `_mcp_seg_at` |
-| 3 | Disc Arena AI dodge direction | Done | "Dodge" was a verbatim copy of "catch" — the AI stepped into every throw |
-| 4 | "NEW BEST" unreachable | Done | Compared against an already-updated high score; now a flag set where the comparison happens |
-| 5 | `engine_blit` out-of-bounds write | Done | A panel smaller than the 320x240 surface overran `_fb_blit`; extent now clamped |
-| 6 | Framebuffer probe hardening | Done | ioctl returns checked, bpp whitelisted to 16/32, geometry bounded, `alloc` guarded |
-| 7 | Per-frame cost | Done | `draw_clear` 443 → 49 us; `engine_blit` off the 15.1 ms byte-wise `memcpy`; glow black fast-reject; PPM fallback throttled from 60/s to ~1/s |
-| 8 | `O_NOFOLLOW` + mode 0600 on created files | Done | The 14 `/tmp` PPMs and the relative-path `scores.dat` |
-| 9 | Regression cover for paths CI cannot reach | Done | `tests/engine-blit.tcyr` (5), `tests/mcpcone-rotation.tcyr` (9), both mutation-checked; CI moved to `cyrius tests` |
-
-**Exit criteria**: clean build + 27 assertions across 3 suites + all 14 `--ppm` frames, renders pixel-neutral except the MCP Cone fix. **Met.**
-
-## v0.7.0 — Game Feel
-
-The six defects 0.6.3 deliberately held back, plus the paddle clamp from the
-same sweep. Each changes how a game *plays*, which is why they were separated
-from the correctness pass.
-
-| # | Item | Status | Notes |
-|---|------|--------|-------|
-| 1 | Battle Tanks movement tick-gating | Done | Input latches a direction; one cell on one axis per tick. Player was moving ~25-30 cells/s against a 15 cells/s world and outran its own shells |
-| 2 | Battle Tanks AI stops one cell short | Done | A* goal is the player's cell, so the AI arrived, froze, and hid the player under its own sprite |
-| 3 | Battle Tanks point-blank shots | Done | Both updaters advanced before testing, so the shot's own cell was a blind spot |
-| 4 | Light Cycles simultaneous resolution | Done | Head-on was decided by update order and always killed P2; now a draw. Covered by `tests/lightcycles-headon.tcyr` |
-| 5 | Interceptors between-wave freeze | Done | Only the enemy loop pauses now; bullets and collisions keep running |
-| 6 | MCP Cone lose condition | Done | Three attempts, DEREZZED card, score on rings broken so it is no longer a constant 1800. Lives drawn as pips |
-| 7 | Disc Arena paddle clamp | Done | Clamp moved into the input handler; bounds shared with `disc_update` |
-| 8 | Dead `gb_score` path removed | Done | `main.cyr` is the single scoring authority for Grid Bugs |
-| 9 | CI lint promoted to a hard gate | Done | The 8 long lines it tolerated went away with the Tanks input rewrite |
-
-**Exit criteria**: clean build + 52 assertions across 4 suites + all 14 `--ppm` frames + lint-clean. **Met** — but see the play-test item below; this release is the one that most needs it.
-
-## v0.7.1 – v0.7.2 — Cyrius 6.6.x Toolchain
-
-Toolchain + stdlib refreshes. No game-logic or render changes.
-
-| # | Item | Status | Notes |
-|---|------|--------|-------|
-| 1 | Toolchain pin 6.5.36 → 6.6.2 (v0.7.1) | Done | Continuation-line indentation reflowed; no logic change |
-| 2 | Toolchain pin 6.6.2 → 6.6.20 (v0.7.2) | Done | `cyrius.cyml` `[package].cyrius`; CI/release read it by grep |
-| 3 | Vendored stdlib re-synced to the 6.6.20 bundle | Done | `cyrius deps` closure 17 → 19 files (`alloc` now names `poison` + `alloc_cx`, both `#ifdef`-gated and compiled out); `cyrius.lock` is now written for stdlib-only projects and is tracked |
-| 4 | Doc/version sweep | Done | README toolchain floor, CLAUDE.md version, this roadmap, `NOTE:` comments made pin-agnostic, CHANGELOG 0.7.1 entry moved to the top |
-
-**Exit criteria**: clean build + 52 assertions across 4 suites + lint-clean + all 14 `--ppm` frames byte-identical to the previous pin (with and without `scores.dat`). **Met.**
-
-## v0.8.0 – v0.8.1 — Cyrius 6.7.x Toolchain (current)
-
-Moves onto the 6.7.x toolchain line. No game-logic or render changes.
-
-| # | Item | Status | Notes |
-|---|------|--------|-------|
-| 1 | Toolchain pin 6.6.20 → 6.7.9 (v0.8.0) | Done | `cyrius.cyml` `[package].cyrius`; CI/release read it by grep |
-| 2 | Toolchain pin 6.7.9 → 6.7.18 (v0.8.1) | Done | The binary is 4,080 bytes smaller, all of it from the 6.7.18 compiler |
-| 3 | Vendored stdlib + `cyrius.lock` re-synced to each bundle | Done | Same 19-file closure throughout. Each pin's only Linux-compiled changes are unused additions (`sys_ppoll`, `SYS_POLL`, epoll event helpers) and a refactor of `vec`'s abort paths. None of them clashes with encom's own `SYS_*` enum |
-| 4 | CI test step off the removed `cyrius tests` (v0.8.1) | Done | That spelling was removed in 6.7.12 and would have failed the job. CI now runs `cyrius test tests`, which keeps the same output format and suite-count check |
-| 5 | Doc/version sweep | Done | README toolchain floor, CLAUDE.md version, CONTRIBUTING test command, this roadmap, CHANGELOG |
-
-**Exit criteria**: clean build + 52 assertions across 4 suites + lint-clean + all 14 `--ppm` frames byte-identical to the previous pin (with and without `scores.dat`). **Met** at both pins.
-
-## v0.7.x → v0.9.0 — Pre-1.0 Hardening (ongoing)
-
-The room before 1.0.0. No new games — confidence work. v0.7.0 above cleared
-the game-feel backlog; what remains is play-testing, the deep security pass and
-cross-target builds.
-
-| # | Item | Status | Notes |
-|---|------|--------|-------|
-| 1 | Full hands-on play-test pass (all 6 games, real `/dev/fb0`) | Pending | Live input/feel/difficulty/frame-pacing — the one thing headless `--ppm` can't cover |
-| 2 | Bug audit + fixes | Pending | Triage anything play-testing surfaces |
-| 2a | Function-local array sizing | Done | A function-local `var X[N]` reserves ONE 8-byte slot, not `N`. All five sites that indexed past it via `store64(&X + i*8, …)` are now file-scope `.bss` like `_ai_*`: `_draw_digits[8]` (`main.cyr`), `_maze_cand_dir[4]` (`grid.cyr`), `_engine_ts[2]` / `_engine_now_ts[2]` / `_engine_sleep_ts[2]` (`engine.cyr`). The `draw_number` site was **not** benign as previously recorded — it corrupted the menu and title cards whenever `scores.dat` held a non-zero score; the committed screenshots hid it by being captured with no `scores.dat`, so every call took the `num == 0` early return. `input.cyr` `buf[4]` stays a local (1-byte reads at offset 0 only). +144 bytes static; renders byte-identical where it was already correct, and maze output identical across 200 seeds |
-| 2b | Game-feel defects found in the 0.6.3 audit | Done | All six fixed in v0.7.0 — see that section above |
-| 2c | Difficulty tuning after the 0.7.0 behaviour changes | Pending | Three games changed how they play and none has been played since. Battle Tanks is the big one: the player now moves at the same 15 cells/s as the AI and its shells, which may want a different `tk_tick_rate` or a separate movement rate. MCP Cone's three attempts is a first guess, not a measured curve. Disc Arena's AI has been dodging since 0.6.3 and still has not been played |
-| 3 | Deep security audit | Pending | Input parsing, save-file I/O, bounds. 0.6.3 covered the framebuffer probe/blit, `O_NOFOLLOW` on created files, and the `scores.dat` read path; the escape-sequence parser in `input.cyr` is the main remaining surface |
-| 4 | Cross-target build check | Pending | `--aarch64` / other targets if in scope |
-
-## v1.0.0 — Release (target, after hardening)
-
-First public tag — ships once the 0.7→0.9 hardening clears.
-
-| # | Item | Status | Notes |
-|---|------|--------|-------|
-| 1 | All 6 games complete and polished | Done | LC, GB, TK, MCP, INT, DISC — all playable with AI, scoring, high scores |
-| 2 | Consistent visual identity (neon palette) | Done | All games use shared color palette |
-| 3 | Stable 60fps on all games | Done | Frame timing in engine.cyr, simple games |
-| 4 | Initial security pass (input, save files) | Done | See CHANGELOG — 7 fixes across input, memory, file I/O |
-| 5 | Play-test + bug + security audit cleared | Pending | Gated on v0.7.x→v0.9 above |
+First non-prerelease tag; `release.yml` marks every `0.x` tag as a prerelease. It ships once 0.9.x clears: play-test, sweep and audit done, and CI green on every gate.
 
 ## Future (separate repos, separate scope)
 
@@ -215,7 +85,3 @@ First public tag — ships once the 0.7→0.9 hardening clears.
 | **MCP Voice** | Announcer with digital vocal processing | shravan, naad | Pitch down + vocoder + reverb + ring mod. David Warner-style 80s digitized voice. Needs shravan/naad ported first. |
 | **Disc Wars** | Full 3D arena disc combat | kiran, impetus | Disc Arena (2D) ships in v1.0; 3D version is a separate effort |
 | **THE GRID** | Interactive world, AI programs, two visual modes | kiran, joshua, impetus | The big one. 1982 wireframe + modern. |
-
----
-
-*Last Updated: 2026-08-31*

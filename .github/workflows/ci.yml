@@ -63,6 +63,34 @@ jobs:
           done
           [ "$FAIL" -eq 0 ] || { echo "::error::lint is a hard gate — fix the warnings above"; exit 1; }
 
+      - name: Format
+        # Hard gate as of 0.8.2. It was held back while three files failed
+        # `cyrius fmt`; src/ and tests/ have been canonically formatted since the
+        # 0.7.1 continuation-indent reflow, so the gate now keeps them that way.
+        # `cyrius fmt --check` exits 1 and names the first differing line.
+        run: |
+          FAIL=0
+          for f in src/*.cyr tests/*.tcyr; do
+            cyrius fmt --check "$f" || { echo "::error file=$f::not cyrius fmt clean (fix: cyrius fmt $f)"; FAIL=1; }
+          done
+          [ "$FAIL" -eq 0 ] || { echo "::error::fmt is a hard gate — see the files above"; exit 1; }
+
+      - name: Cross-build (aarch64)
+        # Added in 0.8.2. The x86_64 build cannot see a constant that is right
+        # on x86_64 and wrong elsewhere: until 0.8.2 src/engine.cyr carried its
+        # own x86_64 SYS_* / O_* copies, which override the stdlib's per-target
+        # values, so an aarch64 build issued getxattr instead of lseek and passed
+        # O_NOFOLLOW as O_LARGEFILE. The aarch64 compiler reports exactly that
+        # class ("conflicting value" on a redeclared stdlib constant, "raw
+        # syscall" on an x86_64 number it cannot translate). Build-only: the
+        # binary is not run here or shipped by release.yml.
+        run: |
+          set -o pipefail
+          cyrius build --aarch64 src/main.cyr build/${{ github.event.repository.name }}-aarch64 2>&1 | tee /tmp/a64_build
+          if grep -E 'conflicting value|raw syscall' /tmp/a64_build; then
+            echo "::error::aarch64 build would issue wrong syscalls or flags — use the lib/syscalls.cyr constants instead of local copies"; exit 1
+          fi
+
       - name: Test
         # `cyrius test tests` auto-discovers every .tcyr under tests/ — the
         # constants suite plus three regression suites (engine-blit,

@@ -6,7 +6,7 @@
 
 - **Type**: Standalone game binary (Cyrius-native)
 - **License**: GPL-3.0-only
-- **Version**: SemVer, currently 0.8.1 (pre-1.0; 0.6.x→0.9.x for hardening before 1.0.0 release)
+- **Version**: SemVer, currently 0.8.2 (pre-1.0; 0.6.x→0.9.x for hardening before 1.0.0 release)
 - **Version file**: `VERSION` at repo root
 - **Genesis repo**: [agnosticos](https://github.com/MacCracken/agnosticos)
 - **Sister projects**: [cyrius-doom](https://github.com/MacCracken/cyrius-doom) (3D BSP), [cyrius-nba-jam](https://github.com/MacCracken/cyrius-nba-jam) (2D sprites)
@@ -37,7 +37,7 @@ A collection of six arcade games inspired by the 1982 TRON cabinet and Discs of 
 
 3. **The t-ron connection.** The AGNOS security monitor is named t-ron — the security program from TRON that fights the MCP. ENCOM is the fictional company from the same universe. This collection ships games from the company whose security program already runs in the OS.
 
-4. **Small scope, high polish.** Each game is 200-300 lines. The whole collection is ~3.9K lines. Small enough to finish, polished enough to showcase.
+4. **Small scope, high polish.** Each game is 226-315 lines. The whole collection is ~4.4K lines. Small enough to finish, polished enough to showcase.
 
 ## Architecture
 

@@ -16,23 +16,24 @@ output = "build/encom-hits"
 # line/arc/polygon (no engine, GPU, or physics deps on the critical path).
 # Same retro-port-in-Cyrius pattern as cyrius-doom / cyrius-polyomino / cyrius-bb.
 #
-# The collection defines its own SYS_* enum (src/engine.cyr) and calls the
-# `syscall` builtin directly, so `syscalls` is not listed here. It is vendored
-# anyway: since 6.2.38 `assert` includes lib/syscalls.cyr and `alloc` includes
-# lib/atomic.cyr, so the transitive closure of the four modules below was 17
-# files on 6.5.36 / 6.6.2 (9 on 6.0.52). Since 6.6.20 it is 19 (still 19 on
-# 6.7.18): `alloc` also names
-# lib/poison.cyr and lib/alloc_cx.cyr, both behind #ifdef (CYRIUS_POISON /
-# CYRIUS_TARGET_CX) and so compiled out of this build; `cyrius deps` vendors
-# them because it follows includes without evaluating #ifdef. `cyrius deps`
-# now also writes cyrius.lock (sha256 per vendored file + toolchain version)
-# for stdlib-only projects. The stdlib SYS_* / O_* constants that
-# arrive with it duplicate names encom already declares, but every colliding
-# value is identical and duplicate enum constants are a warn-only guardrail, so
-# the build stays clean. The runtime surface encom actually calls is still tiny:
-# alloc (allocation) + string (memcpy/memset/strlen/println). Every glyph is
-# hand-rendered via the 3x5 bitmap font, so the game code itself never touches
-# the variadic formatter.
+# `syscalls` is listed because the game takes its SYS_* numbers and O_* flags
+# from it (src/engine.cyr declares only SYS_OPEN and SYS_CLOCK_GETTIME, which the
+# stdlib does not provide on every target) and calls the `syscall` builtin
+# directly. Until 0.8.2 encom carried its own x86_64 copies instead, which
+# override the stdlib's per-target values, so an aarch64 build issued getxattr
+# for lseek and lost O_NOFOLLOW. Listing it changes nothing in the closure:
+# `alloc` and `assert` already include it.
+#
+# The transitive closure was 17 files on 6.5.36 / 6.6.2 (9 on 6.0.52). Since
+# 6.6.20 it is 19 (still 19 on 6.7.18): `alloc` also names lib/poison.cyr and
+# lib/alloc_cx.cyr, both behind #ifdef (CYRIUS_POISON / CYRIUS_TARGET_CX) and so
+# compiled out of this build; `cyrius deps` vendors them because it follows
+# includes without evaluating #ifdef. `cyrius deps` also writes cyrius.lock
+# (sha256 per vendored file + toolchain version) for stdlib-only projects. The
+# runtime surface encom actually calls is still tiny: alloc (allocation) +
+# string (memcpy/memset) + the syscall constants. Every glyph is hand-rendered
+# via the 3x5 bitmap font, so the game code itself never touches the variadic
+# formatter.
 #
 # `assert` backs the tcyr unit suite and pulls `fmt` transitively (it prints
 # assertion counts via fmt_int); `fmt`'s variadic path in turn references
@@ -42,7 +43,7 @@ output = "build/encom-hits"
 # Order matters — Cyrius is single-pass; deps are prepended as includes, so
 # `string`/`alloc` must precede anything using strlen/alloc/memcpy/memset.
 [deps]
-stdlib = ["string", "alloc", "vec", "assert"]
+stdlib = ["string", "alloc", "syscalls", "vec", "assert"]
 
 # Earmarked external deps — dormant until their milestone, kept commented so
 # the build stays warning-free (an unused dep just adds link warnings + weight).
